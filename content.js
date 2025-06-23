@@ -169,9 +169,23 @@
     },
 
     'indeed.com': {
+      // Job application forms
       fullName: ['input[name="applicant.name"]', 'input[id*="applicant-name"]'],
       email: ['input[name="applicant.emailAddress"]', 'input[id*="applicant-email"]'],
-      phone: ['input[name="applicant.phoneNumber"]', 'input[id*="applicant-phone"]']
+      phone: ['input[name="applicant.phoneNumber"]', 'input[id*="applicant-phone"]'],
+
+      // Profile creation forms (Japanese)
+      firstName: ['input[name="firstName"]', 'input[id*="firstName"]'],
+      lastName: ['input[name="lastName"]', 'input[id*="lastName"]'],
+      profileEmail: ['input[name="email"]', 'input[type="email"]'],
+      profilePhone: ['input[name="phone"]', 'input[name="phoneNumber"]'],
+
+      // Profile sections (textareas and expanded fields)
+      selfIntroduction: ['textarea[name="summary"]', 'textarea[placeholder*="自己紹介"]', 'div[contenteditable="true"]'],
+      workExperience: ['textarea[name="experience"]', 'textarea[placeholder*="職歴"]'],
+      education: ['textarea[name="education"]', 'textarea[placeholder*="学歴"]'],
+      skills: ['textarea[name="skills"]', 'textarea[placeholder*="スキル"]'],
+      languages: ['textarea[name="languages"]', 'textarea[placeholder*="語学"]']
     },
 
     'glassdoor.com': {
@@ -250,6 +264,36 @@
       if (data.personal || data.experience) {
         const summary = generateSummary(data);
         fieldsFound += fillField('coverLetter', summary, filledFields);
+        fieldsFound += fillField('selfIntroduction', summary, filledFields);
+      }
+
+      // Indeed Profile-specific fields
+      if (window.location.hostname.includes('indeed.com')) {
+        // Fill profile-specific email and phone
+        if (data.personal) {
+          fieldsFound += fillField('profileEmail', data.personal.email, filledFields);
+          fieldsFound += fillField('profilePhone', data.personal.phone, filledFields);
+        }
+
+        // Fill detailed sections for profile
+        if (data.experience && data.experience.length > 0) {
+          const experienceText = data.experience.map(exp =>
+            `${exp.title} at ${exp.company} (${exp.dates || 'Recent'})\n${exp.description || ''}`
+          ).join('\n\n');
+          fieldsFound += fillField('workExperience', experienceText, filledFields);
+        }
+
+        if (data.education && data.education.length > 0) {
+          const educationText = data.education.map(edu =>
+            `${edu.degree || 'Degree'} from ${edu.school} (${edu.dates || 'Recent'})`
+          ).join('\n');
+          fieldsFound += fillField('education', educationText, filledFields);
+        }
+
+        if (data.skills && data.skills.length > 0) {
+          const skillsText = data.skills.join(', ');
+          fieldsFound += fillField('skills', skillsText, filledFields);
+        }
       }
 
       // Show visual feedback
@@ -333,6 +377,23 @@
     // Focus the element first
     element.focus();
 
+    // Handle contenteditable divs (used by Indeed profile)
+    if (element.contentEditable === 'true') {
+      element.textContent = value;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+
+    // Handle textarea elements
+    if (element.tagName === 'TEXTAREA') {
+      element.value = value;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+
+    // Handle regular input elements
     // Clear existing value
     element.value = '';
 
