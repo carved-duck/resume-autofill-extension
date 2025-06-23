@@ -156,6 +156,40 @@
       'textarea[placeholder*="Tell us about yourself" i]',
       'textarea[placeholder*="Why are you interested" i]',
       'textarea[placeholder*="Additional information" i]'
+    ],
+
+    // Ultra-generic fallbacks for Indeed profile
+    selfIntroduction: [
+      'textarea',  // Any textarea
+      '[contenteditable="true"]',  // Any contenteditable
+      'div[contenteditable]'
+    ],
+
+    workExperience: [
+      'textarea',
+      '[contenteditable="true"]'
+    ],
+
+    education: [
+      'textarea',
+      '[contenteditable="true"]'
+    ],
+
+    skills: [
+      'textarea',
+      '[contenteditable="true"]'
+    ],
+
+    profileEmail: [
+      'input[type="email"]',
+      'input[name*="email"]',
+      'input[id*="email"]'
+    ],
+
+    profilePhone: [
+      'input[type="tel"]',
+      'input[name*="phone"]',
+      'input[id*="phone"]'
     ]
   };
 
@@ -168,24 +202,58 @@
       phone: ['input[name="phoneNumber"]', 'input[id*="phoneNumber"]']
     },
 
-    'indeed.com': {
+        'indeed.com': {
       // Job application forms
       fullName: ['input[name="applicant.name"]', 'input[id*="applicant-name"]'],
       email: ['input[name="applicant.emailAddress"]', 'input[id*="applicant-email"]'],
       phone: ['input[name="applicant.phoneNumber"]', 'input[id*="applicant-phone"]'],
 
-      // Profile creation forms (Japanese)
-      firstName: ['input[name="firstName"]', 'input[id*="firstName"]'],
-      lastName: ['input[name="lastName"]', 'input[id*="lastName"]'],
-      profileEmail: ['input[name="email"]', 'input[type="email"]'],
-      profilePhone: ['input[name="phone"]', 'input[name="phoneNumber"]'],
+      // Profile creation forms (Japanese) - more generic selectors
+      firstName: [
+        'input[name="firstName"]', 'input[id*="firstName"]',
+        'input[name*="first"]', 'input[id*="first"]',
+        'input[placeholder*="名前"]', 'input[placeholder*="First"]'
+      ],
+      lastName: [
+        'input[name="lastName"]', 'input[id*="lastName"]',
+        'input[name*="last"]', 'input[id*="last"]',
+        'input[placeholder*="姓"]', 'input[placeholder*="Last"]'
+      ],
+      profileEmail: [
+        'input[name="email"]', 'input[type="email"]',
+        'input[id*="email"]', 'input[placeholder*="email"]',
+        'input[placeholder*="メール"]'
+      ],
+      profilePhone: [
+        'input[name="phone"]', 'input[name="phoneNumber"]',
+        'input[id*="phone"]', 'input[placeholder*="phone"]',
+        'input[placeholder*="電話"]'
+      ],
 
-      // Profile sections (textareas and expanded fields)
-      selfIntroduction: ['textarea[name="summary"]', 'textarea[placeholder*="自己紹介"]', 'div[contenteditable="true"]'],
-      workExperience: ['textarea[name="experience"]', 'textarea[placeholder*="職歴"]'],
-      education: ['textarea[name="education"]', 'textarea[placeholder*="学歴"]'],
-      skills: ['textarea[name="skills"]', 'textarea[placeholder*="スキル"]'],
-      languages: ['textarea[name="languages"]', 'textarea[placeholder*="語学"]']
+      // Profile sections - very generic selectors
+      selfIntroduction: [
+        'textarea[name="summary"]', 'textarea[placeholder*="自己紹介"]',
+        'div[contenteditable="true"]', 'textarea[id*="summary"]',
+        'textarea[placeholder*="経歴"]', 'textarea[placeholder*="について"]',
+        'textarea', '[contenteditable="true"]'  // Fallback to any textarea/contenteditable
+      ],
+      workExperience: [
+        'textarea[name="experience"]', 'textarea[placeholder*="職歴"]',
+        'textarea[id*="experience"]', 'textarea[placeholder*="経験"]',
+        'textarea[placeholder*="職業"]'
+      ],
+      education: [
+        'textarea[name="education"]', 'textarea[placeholder*="学歴"]',
+        'textarea[id*="education"]', 'textarea[placeholder*="学校"]'
+      ],
+      skills: [
+        'textarea[name="skills"]', 'textarea[placeholder*="スキル"]',
+        'textarea[id*="skills"]', 'textarea[placeholder*="技術"]'
+      ],
+      languages: [
+        'textarea[name="languages"]', 'textarea[placeholder*="語学"]',
+        'textarea[id*="language"]', 'textarea[placeholder*="言語"]'
+      ]
     },
 
     'glassdoor.com': {
@@ -229,6 +297,12 @@
 
   function fillFormWithData(data) {
     console.log('🎯 Filling form with resume data...');
+
+    // Debug: Log all form elements on the page
+    console.log('🔍 DEBUG: All input elements:', document.querySelectorAll('input'));
+    console.log('🔍 DEBUG: All textarea elements:', document.querySelectorAll('textarea'));
+    console.log('🔍 DEBUG: All contenteditable elements:', document.querySelectorAll('[contenteditable="true"]'));
+    console.log('🔍 DEBUG: All form elements:', document.querySelectorAll('form *'));
 
     let fieldsFound = 0;
     const filledFields = [];
