@@ -216,6 +216,148 @@
       border-radius: 4px;
       font-size: 10px;
     }
+
+    /* Page Analysis Styles */
+    .page-analysis {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 15px;
+      margin: 15px 0;
+      font-size: 13px;
+    }
+
+    .page-analysis h3 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #fff;
+    }
+
+    .page-analysis h4 {
+      margin: 15px 0 8px 0;
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .insights-section ul,
+    .field-list,
+    .button-list {
+      margin: 8px 0;
+      padding-left: 20px;
+      list-style-type: disc;
+    }
+
+    .insights-section li,
+    .field-list li,
+    .button-list li {
+      margin: 4px 0;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+    }
+
+    .element-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 10px 0;
+    }
+
+    .element-item {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .element-item strong {
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .field-list code,
+    .button-list code {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-size: 10px;
+      color: #fff;
+    }
+
+    /* Copy-Paste Helper Styles */
+    .copy-paste-helper {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 15px;
+      margin: 15px 0;
+      font-size: 13px;
+    }
+
+    .copy-paste-helper h3 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #fff;
+    }
+
+    .copy-section {
+      margin: 15px 0;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .copy-section h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.9);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .copy-content {
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      padding: 10px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.9);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      max-height: 120px;
+      overflow-y: auto;
+      cursor: text;
+      user-select: all;
+    }
+
+    .copy-content:focus {
+      outline: 2px solid rgba(255, 255, 255, 0.4);
+    }
+
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.2) !important;
+      border: 1px solid rgba(255, 255, 255, 0.3) !important;
+      color: #fff !important;
+      padding: 4px 8px !important;
+      border-radius: 4px !important;
+      font-size: 10px !important;
+      cursor: pointer !important;
+      margin: 0 !important;
+      width: auto !important;
+      min-width: 60px !important;
+    }
+
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.3) !important;
+    }
+
+    .copy-btn.copied {
+      background: rgba(40, 167, 69, 0.8) !important;
+      border-color: rgba(40, 167, 69, 0.8) !important;
+    }
   </style>
 </head>
 <body>
@@ -226,6 +368,12 @@
     </div>
 
     <div id="status" class="status"></div>
+
+    <!-- Page Analysis Results -->
+    <div id="page-analysis" class="page-analysis" style="display: none;"></div>
+
+    <!-- Copy-Paste Helper -->
+    <div id="copy-paste-helper" class="copy-paste-helper" style="display: none;"></div>
 
     <div id="upload-section" class="upload-section">
       <div class="upload-icon">📄</div>
@@ -247,8 +395,16 @@
         <div id="data-preview"></div>
       </div>
 
+            <button id="analyzePageBtn" style="background: #17a2b8; border-color: #17a2b8;">
+        🔍 Analyze Current Page
+      </button>
+
       <button id="fillFormBtn" class="primary-btn">
         🎯 Auto-Fill Current Page
+      </button>
+
+      <button id="copyPasteHelperBtn" style="background: #6f42c1; border-color: #6f42c1;">
+        📋 Copy-Paste Helper
       </button>
 
       <button id="clearDataBtn" class="danger-btn">
@@ -271,6 +427,6 @@
     </div>
   </div>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup_modular.js"></script>
 </body>
 </html>

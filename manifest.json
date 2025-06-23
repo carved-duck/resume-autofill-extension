@@ -6,7 +6,8 @@
 
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "scripting"
   ],
 
   "host_permissions": [
@@ -42,9 +43,10 @@
         "https://*.wantedly.com/*",
         "https://*.gaijinpot.com/*"
       ],
-      "js": ["content.js"],
+      "js": ["content/content_main.js"],
       "css": ["content.css"],
-      "run_at": "document_end"
+      "run_at": "document_end",
+      "type": "module"
     }
   ],
 

@@ -266,16 +266,27 @@ class EnhancedResumeParser:
             line_lower = line.lower()
 
             # Start of education section
-            if any(keyword in line_lower for keyword in ['education', 'academic', 'university', 'college']):
+            if any(keyword in line_lower for keyword in ['education', 'academic']):
                 education_section = True
+                continue
 
             # Stop at next section
-            if education_section and any(keyword in line_lower for keyword in ['experience', 'skills', 'projects']):
+            if education_section and any(keyword in line_lower for keyword in ['experience', 'skills', 'projects', 'work']):
                 break
 
-            if education_section or any(keyword in line_lower for keyword in ['university', 'college', 'institute', 'school']):
-                # Institution patterns
-                if any(keyword in line_lower for keyword in ['university', 'college', 'institute', 'school']):
+            # Only process if we're in education section OR line clearly indicates academic institution
+            if education_section or any(keyword in line_lower for keyword in ['university', 'college']):
+                # Skip lines that look like work experience (job titles, instructor/teacher roles)
+                work_indicators = ['instructor', 'teacher', 'manager', 'director', 'engineer', 'developer',
+                                 'analyst', 'coordinator', 'assistant', 'specialist', 'representative',
+                                 'consultant', 'administrator']
+
+                # Skip if this looks like work experience
+                if any(indicator in line_lower for indicator in work_indicators):
+                    continue
+
+                # Institution patterns - be more specific
+                if any(keyword in line_lower for keyword in ['university', 'college', 'institute']) and not any(indicator in line_lower for indicator in work_indicators):
                     edu_entry = {
                         'school': line.strip(),
                         'degree': '',
@@ -283,7 +294,7 @@ class EnhancedResumeParser:
                     }
 
                     # Look for degree in same line or nearby lines
-                    if any(degree in line_lower for degree in ['bachelor', 'master', 'phd', 'mba', 'bs', 'ba', 'ms', 'ma']):
+                    if any(degree in line_lower for degree in ['bachelor', 'master', 'phd', 'mba', 'bs', 'ba', 'ms', 'ma', 'degree']):
                         edu_entry['degree'] = line.strip()
 
                     # Extract year
