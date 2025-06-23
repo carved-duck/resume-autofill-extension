@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 380px;
+      min-height: 500px;
+      padding: 0;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .container {
+      padding: 20px;
+      color: white;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+
+    .header h2 {
+      margin: 0 0 8px 0;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .header p {
+      margin: 0;
+      opacity: 0.9;
+      font-size: 14px;
+    }
+
+    .status {
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      text-align: center;
+      font-weight: 500;
+      display: none;
+    }
+
+    .status.success {
+      background-color: rgba(40, 167, 69, 0.9);
+    }
+
+    .status.error {
+      background-color: rgba(220, 53, 69, 0.9);
+    }
+
+    .status.warning {
+      background-color: rgba(255, 193, 7, 0.9);
+      color: #333;
+    }
+
+    .upload-section {
+      background: rgba(255, 255, 255, 0.1);
+      border: 2px dashed rgba(255, 255, 255, 0.3);
+      border-radius: 12px;
+      padding: 25px;
+      text-align: center;
+      margin-bottom: 20px;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+
+    .upload-section:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .upload-section.drag-over {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: #fff;
+      transform: scale(1.02);
+    }
+
+    .upload-icon {
+      font-size: 48px;
+      margin-bottom: 15px;
+      opacity: 0.8;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .file-label {
+      display: block;
+      width: 100%;
+      cursor: pointer;
+    }
+
+    button {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      width: 100%;
+      margin: 8px 0;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      font-size: 14px;
+    }
+
+    button:hover {
+      background: rgba(255, 255, 255, 0.3);
+      border-color: rgba(255, 255, 255, 0.5);
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .primary-btn {
+      background: #28a745;
+      border-color: #28a745;
+    }
+
+    .primary-btn:hover {
+      background: #218838;
+      border-color: #218838;
+    }
+
+    .danger-btn {
+      background: #dc3545;
+      border-color: #dc3545;
+    }
+
+    .danger-btn:hover {
+      background: #c82333;
+      border-color: #c82333;
+    }
+
+    .data-summary {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      border-radius: 12px;
+      margin: 15px 0;
+    }
+
+    .data-item {
+      margin: 8px 0;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .data-label {
+      font-weight: 600;
+      opacity: 0.9;
+    }
+
+    .data-value {
+      opacity: 0.8;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .loading {
+      display: none;
+      text-align: center;
+      margin: 20px 0;
+    }
+
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top: 3px solid #fff;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      margin-bottom: 10px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .footer {
+      margin-top: 20px;
+      text-align: center;
+      font-size: 11px;
+      opacity: 0.7;
+    }
+
+    .supported-sites {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .site-badge {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>🚀 Resume Auto-Fill</h2>
+      <p>Upload your resume to auto-fill job applications</p>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <div id="upload-section" class="upload-section">
+      <div class="upload-icon">📄</div>
+      <label for="resumeFile" class="file-label">
+        <div>Drop your resume here or click to browse</div>
+      </label>
+      <input type="file" id="resumeFile" accept=".pdf" style="display: none;" />
+      <button id="uploadBtn">📤 Upload & Parse Resume</button>
+    </div>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <div>Parsing your resume...</div>
+    </div>
+
+    <div id="resume-data" style="display: none;">
+      <div class="data-summary">
+        <h4 style="margin: 0 0 15px 0; font-size: 16px;">📋 Your Data:</h4>
+        <div id="data-preview"></div>
+      </div>
+
+      <button id="fillFormBtn" class="primary-btn">
+        🎯 Auto-Fill Current Page
+      </button>
+
+      <button id="clearDataBtn" class="danger-btn">
+        🗑️ Clear Resume Data
+      </button>
+    </div>
+
+    <div class="footer">
+      <div>Supports major job sites:</div>
+      <div class="supported-sites">
+        <span class="site-badge">LinkedIn</span>
+        <span class="site-badge">Indeed</span>
+        <span class="site-badge">Glassdoor</span>
+        <span class="site-badge">Monster</span>
+        <span class="site-badge">ZipRecruiter</span>
+        <span class="site-badge">Workday</span>
+        <span class="site-badge">Wantedly</span>
+        <span class="site-badge">GaijinPot</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

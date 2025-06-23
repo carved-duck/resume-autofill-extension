@@ -1,0 +1,26 @@
+/* Content script CSS for visual feedback */
+
+.resume-autofill-highlight {
+  background: linear-gradient(90deg, #28a745, #20c997) !important;
+  color: white !important;
+  border: 2px solid #28a745 !important;
+  transition: all 0.3s ease !important;
+  animation: resumeAutofillPulse 0.6s ease-in-out !important;
+}
+
+@keyframes resumeAutofillPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+  }
+}
+
+/* Notification styles are handled in JavaScript for dynamic injection */
