@@ -1,0 +1,12 @@
+🔄 Chrome Extension Reload Instructions:
+
+1. Open Chrome and go to chrome://extensions/
+2. Find 'Resume Auto-Fill Assistant' extension
+3. Click the RELOAD button (↻) to reload the extension
+4. Go to a job site (Indeed or Gaijin Pot)
+5. Open the extension popup
+6. Try the 'Analyze Page' button
+
+The content script should now load without import errors!
+
+Version updated to 1.0.1 to force cache refresh.

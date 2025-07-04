@@ -1,338 +1,315 @@
-// Modular Content Script - Main Entry Point
-// Imports site selectors and provides form filling functionality
-
-import { FIELD_SELECTORS, SITE_SPECIFIC_SELECTORS } from './modules/siteSelectors.js';
+// Enhanced Content Script - Main Orchestrator
+// Clean, modular version that coordinates all functionality
 
 console.log('🚀 Resume Auto-Fill Extension - Content Script Loaded (Modular Version)');
 
-// Global state
-let resumeData = null;
+class ContentScriptOrchestrator {
+  constructor() {
+    this.resumeData = null;
+    this.formFiller = null;
+    this.isInitialized = false;
+  }
 
-// Main form filling function
-function fillFormWithResumeData(data) {
-    console.log('📝 Starting form fill with data:', data);
-    resumeData = data;
+  async initialize() {
+    if (this.isInitialized) return;
 
-    let fieldsFound = 0;
-    const currentSite = window.location.hostname;
+    console.log('🔧 Initializing content script orchestrator...');
 
-    // Get site-specific selectors if available
-    const siteSelectors = SITE_SPECIFIC_SELECTORS[currentSite] || {};
+    try {
+      // Wait for modules to be loaded
+      await this.waitForModules();
 
-    // Fill personal information
-    fieldsFound += fillPersonalInfo(data.personal || {}, siteSelectors);
+      // Initialize form filler
+      this.formFiller = new window.FormFiller();
 
-    // Fill work experience
-    if (data.experience && data.experience.length > 0) {
-        fieldsFound += fillWorkExperience(data.experience[0], siteSelectors);
+      // Set up message listeners
+      this.setupMessageListeners();
+
+      // Start page monitoring
+      if (window.pageAnalyzer) {
+        window.pageAnalyzer.startDynamicMonitoring();
+      }
+
+      this.isInitialized = true;
+      console.log('✅ Content script orchestrator initialized successfully');
+
+      // Show initialization notification
+      window.NotificationManager?.showNotification(
+        'Resume Auto-Fill extension is ready!',
+        'success',
+        3000
+      );
+
+    } catch (error) {
+      console.error('❌ Failed to initialize content script:', error);
+      window.NotificationManager?.showNotification(
+        'Failed to initialize auto-fill extension',
+        'error'
+      );
     }
+  }
 
-    // Fill education
-    if (data.education && data.education.length > 0) {
-        fieldsFound += fillEducation(data.education[0], siteSelectors);
-    }
+  async waitForModules() {
+    const maxWaitTime = 5000; // 5 seconds
+    const checkInterval = 100; // 100ms
+    let waitTime = 0;
 
-    // Fill cover letter or self-introduction
-    fieldsFound += fillTextContent(data, siteSelectors);
+    return new Promise((resolve, reject) => {
+      const checkModules = () => {
+        const required = [
+          'FIELD_SELECTORS',
+          'SITE_SPECIFIC_SELECTORS',
+          'FormFiller',
+          'PageAnalyzer',
+          'NotificationManager'
+        ];
 
-    console.log(`✅ Form filling complete! Found and filled ${fieldsFound} fields`);
+        const allLoaded = required.every(module => window[module]);
 
-    // Show success notification
-    showNotification(`Auto-filled ${fieldsFound} fields successfully!`, 'success');
-
-    return fieldsFound;
-}
-
-function fillPersonalInfo(personal, siteSelectors) {
-    let filled = 0;
-
-    // Name fields
-    if (personal.full_name) {
-        filled += fillField('fullName', personal.full_name, siteSelectors);
-
-        // Also try to fill first/last name if full name exists
-        const nameParts = personal.full_name.split(' ');
-        if (nameParts.length >= 2) {
-            filled += fillField('firstName', nameParts[0], siteSelectors);
-            filled += fillField('lastName', nameParts.slice(1).join(' '), siteSelectors);
+        if (allLoaded) {
+          console.log('📦 All modules loaded successfully');
+          resolve();
+        } else if (waitTime >= maxWaitTime) {
+          console.warn('⚠️ Module loading timeout, some features may not work');
+          resolve(); // Continue anyway
+        } else {
+          waitTime += checkInterval;
+          setTimeout(checkModules, checkInterval);
         }
-    }
+      };
 
-    // Individual name fields
-    if (personal.firstName) {
-        filled += fillField('firstName', personal.firstName, siteSelectors);
-    }
-    if (personal.lastName) {
-        filled += fillField('lastName', personal.lastName, siteSelectors);
-    }
+      checkModules();
+    });
+  }
 
-    // Contact information
-    if (personal.email) {
-        filled += fillField('email', personal.email, siteSelectors);
-    }
-    if (personal.phone) {
-        filled += fillField('phone', personal.phone, siteSelectors);
-    }
-    if (personal.address) {
-        filled += fillField('address', personal.address, siteSelectors);
-    }
+  setupMessageListeners() {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      console.log('📨 Main orchestrator received message:', message);
 
-    // Japanese-specific fields
-    if (personal.full_name) {
-        const furigana = generateFurigana(personal.full_name);
-        if (furigana) {
-            filled += fillField('furiganaFirst', furigana.first, siteSelectors);
-            filled += fillField('furiganaLast', furigana.last, siteSelectors);
+      switch (message.action) {
+        case 'fillForm':
+          this.handleFillForm(message, sendResponse);
+          break;
+
+        case 'extractLinkedIn':
+          this.handleLinkedInExtraction(sendResponse);
+          break;
+
+        case 'analyzePageStructure':
+          this.handlePageAnalysis(sendResponse);
+          break;
+
+        case 'ping':
+          sendResponse({ success: true, message: 'Content script is active' });
+          break;
+
+        default:
+          // Let other modules handle their specific messages
+          return false;
+      }
+
+      return true; // Indicate async response
+    });
+  }
+
+  async handleFillForm(message, sendResponse) {
+    try {
+      console.log('📝 Handling form fill request...');
+
+      if (!this.formFiller) {
+        throw new Error('Form filler not initialized');
+      }
+
+      // Validate the page first
+      const pageValidation = window.DataValidator?.validatePageForFilling();
+      if (pageValidation && !pageValidation.hasInputs) {
+        throw new Error('No fillable fields found on this page');
+      }
+
+      // Validate resume data
+      const dataValidation = window.DataValidator?.validateResumeData(message.data);
+      if (dataValidation && !dataValidation.isValid) {
+        throw new Error(`Invalid resume data: ${dataValidation.errors.join(', ')}`);
+      }
+
+      // Store the data
+      this.resumeData = message.data;
+
+      // Fill the form
+      const result = this.formFiller.fillFormWithResumeData(message.data);
+
+      // Show result notification
+      if (result.success) {
+        window.NotificationManager?.showNotification(
+          `Successfully filled ${result.fieldsCount} fields!`,
+          'success'
+        );
+      } else {
+        window.NotificationManager?.showNotification(
+          `Form filling failed: ${result.message}`,
+          'warning'
+        );
+      }
+
+      sendResponse({ success: true, result });
+
+    } catch (error) {
+      console.error('❌ Form filling error:', error);
+
+      window.NotificationManager?.showNotification(
+        `Error: ${error.message}`,
+        'error'
+      );
+
+      sendResponse({
+        success: false,
+        error: error.message,
+        result: { success: false, fieldsCount: 0, message: error.message }
+      });
+    }
+  }
+
+  async handleLinkedInExtraction(sendResponse) {
+    try {
+      console.log('🔗 Handling LinkedIn extraction...');
+
+      if (!window.location.hostname.includes('linkedin.com')) {
+        throw new Error('Not on LinkedIn - please navigate to your LinkedIn profile first');
+      }
+
+      // Check if LinkedIn extractor is available
+      if (!window.LinkedInExtractor) {
+        // Try to load the LinkedIn extractor
+        await this.loadLinkedInExtractor();
+      }
+
+      if (window.LinkedInExtractor) {
+        const extractedData = await window.LinkedInExtractor.extractProfile();
+
+        window.NotificationManager?.showNotification(
+          'LinkedIn profile data extracted successfully!',
+          'success'
+        );
+
+        sendResponse({ success: true, data: extractedData });
+      } else {
+        throw new Error('LinkedIn extractor not available');
+      }
+
+    } catch (error) {
+      console.error('❌ LinkedIn extraction error:', error);
+
+      window.NotificationManager?.showNotification(
+        `LinkedIn extraction failed: ${error.message}`,
+        'error'
+      );
+
+      sendResponse({ success: false, error: error.message });
+    }
+  }
+
+  async loadLinkedInExtractor() {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL('js/modules/linkedinExtractor.js');
+      script.onload = () => {
+        console.log('📦 LinkedIn extractor loaded');
+        resolve();
+      };
+      script.onerror = () => {
+        console.error('❌ Failed to load LinkedIn extractor');
+        reject(new Error('Failed to load LinkedIn extractor'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  async handlePageAnalysis(sendResponse) {
+    try {
+      console.log('🔍 Handling page analysis...');
+
+      let analysis = null;
+
+      if (window.PageStructureAnalyzer) {
+        analysis = await window.PageStructureAnalyzer.analyzePageStructure();
+      }
+
+      if (window.pageAnalyzer) {
+        const dynamicAnalysis = await window.pageAnalyzer.analyzePageDynamically();
+        if (dynamicAnalysis) {
+          analysis = { ...analysis, ...dynamicAnalysis };
         }
+      }
+
+      sendResponse({ success: true, analysis });
+
+    } catch (error) {
+      console.error('❌ Page analysis error:', error);
+      sendResponse({ success: false, error: error.message });
     }
+  }
 
-    return filled;
-}
+  // Public methods for debugging
+  debugPage() {
+    window.DebugHelper?.logPageInfo();
+  }
 
-function fillWorkExperience(experience, siteSelectors) {
-    let filled = 0;
+  highlightFields(fieldType = null) {
+    window.DebugHelper?.highlightFields(fieldType);
+  }
 
-    if (experience.title) {
-        filled += fillField('currentTitle', experience.title, siteSelectors);
-    }
-    if (experience.company) {
-        filled += fillField('currentCompany', experience.company, siteSelectors);
-    }
-
-    return filled;
-}
-
-function fillEducation(education, siteSelectors) {
-    let filled = 0;
-
-    if (education.school) {
-        filled += fillField('school', education.school, siteSelectors);
-    }
-    if (education.degree) {
-        filled += fillField('degree', education.degree, siteSelectors);
-    }
-
-    return filled;
-}
-
-function fillTextContent(data, siteSelectors) {
-    let filled = 0;
-
-    // Determine context and fill appropriate content
-    const context = detectFormContext();
-
-    if (context === 'profile') {
-        // For profile forms, use self-introduction
-        const selfIntro = generateSelfIntroduction(data);
-        filled += fillField('selfIntroduction', selfIntro, siteSelectors);
-    } else {
-        // For job applications, use cover letter
-        const coverLetter = generateCoverLetter(data);
-        filled += fillField('coverLetter', coverLetter, siteSelectors);
-    }
-
-    return filled;
-}
-
-function fillField(fieldType, value, siteSelectors) {
-    if (!value) return 0;
-
-    // Try site-specific selectors first
-    let selectors = siteSelectors[fieldType] || [];
-
-    // Fallback to general selectors
-    if (selectors.length === 0) {
-        selectors = FIELD_SELECTORS[fieldType] || [];
-    }
-
-    for (const selector of selectors) {
-        const elements = document.querySelectorAll(selector);
-
-        for (const element of elements) {
-            if (element && !element.value && element.offsetParent !== null) {
-                try {
-                    // Handle different input types
-                    if (element.tagName === 'SELECT') {
-                        selectOptionByText(element, value);
-                    } else if (element.contentEditable === 'true') {
-                        element.textContent = value;
-                        element.dispatchEvent(new Event('input', { bubbles: true }));
-                    } else {
-                        element.value = value;
-                        element.dispatchEvent(new Event('input', { bubbles: true }));
-                        element.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-
-                    console.log(`✅ Filled ${fieldType}: "${value}" using selector: ${selector}`);
-                    return 1;
-                } catch (error) {
-                    console.warn(`⚠️ Error filling field ${fieldType}:`, error);
-                }
-            }
-        }
-    }
-
-    return 0;
-}
-
-function detectFormContext() {
-    // Check URL and page content to determine if this is a profile or application form
-    const url = window.location.href.toLowerCase();
-    const pageText = document.body.textContent.toLowerCase();
-
-    // Profile indicators
-    if (url.includes('profile') || url.includes('account') || url.includes('settings')) {
-        return 'profile';
-    }
-
-    // Application indicators
-    if (url.includes('apply') || url.includes('job') || url.includes('application')) {
-        return 'application';
-    }
-
-    // Check page content
-    if (pageText.includes('about yourself') || pageText.includes('profile') || pageText.includes('自己紹介')) {
-        return 'profile';
-    }
-
-    return 'application'; // Default to application
-}
-
-function generateSelfIntroduction(data) {
-    const personal = data.personal || {};
-    const experience = data.experience || [];
-    const education = data.education || [];
-
-    let intro = '';
-
-    // Professional background
-    if (experience.length > 0) {
-        const currentJob = experience[0];
-        intro += `I am a ${currentJob.title || 'professional'}`;
-        if (currentJob.company) {
-            intro += ` at ${currentJob.company}`;
-        }
-        intro += '. ';
-    }
-
-    // Education
-    if (education.length > 0) {
-        const edu = education[0];
-        intro += `I graduated from ${edu.school || 'university'}`;
-        if (edu.degree) {
-            intro += ` with a ${edu.degree}`;
-        }
-        intro += '. ';
-    }
-
-    // Skills
-    if (data.skills && data.skills.length > 0) {
-        intro += `My technical skills include ${data.skills.slice(0, 5).join(', ')}. `;
-    }
-
-    intro += 'I am passionate about contributing to innovative projects and continuous learning.';
-
-    return intro;
-}
-
-function generateCoverLetter(data) {
-    const personal = data.personal || {};
-    const experience = data.experience || [];
-
-    let letter = 'Dear Hiring Manager,\n\n';
-
-    letter += 'I am writing to express my interest in this position. ';
-
-    if (experience.length > 0) {
-        const currentJob = experience[0];
-        letter += `With my experience as a ${currentJob.title || 'professional'}`;
-        if (currentJob.company) {
-            letter += ` at ${currentJob.company}`;
-        }
-        letter += ', I believe I would be a valuable addition to your team.\n\n';
-    }
-
-    letter += 'I am eager to bring my skills and enthusiasm to contribute to your organization\'s success. ';
-    letter += 'Thank you for considering my application.\n\n';
-    letter += 'Best regards,\n';
-    letter += personal.full_name || 'Applicant';
-
-    return letter;
-}
-
-// Utility functions
-function generateFurigana(name) {
-    // Simple furigana generation (would need proper implementation)
-    if (!name) return null;
-
-    const parts = name.split(' ');
-    return {
-        first: parts[0] || '',
-        last: parts.slice(1).join(' ') || ''
+  testFillWithSampleData() {
+    const sampleData = {
+      personal_info: {
+        full_name: "John Doe",
+        email: "john.doe@example.com",
+        phone: "+1-555-0123",
+        address: "123 Main St, Anytown, USA"
+      },
+      work_experience: [{
+        title: "Software Engineer",
+        company: "Tech Corp",
+        start_date: "2020-01",
+        end_date: "2023-12"
+      }],
+      education: [{
+        institution: "University of Technology",
+        degree: "Bachelor of Science in Computer Science",
+        graduation_date: "2020"
+      }],
+      skills: ["JavaScript", "Python", "React", "Node.js"]
     };
-}
 
-function selectOptionByText(selectElement, text) {
-    const options = selectElement.options;
-    for (let i = 0; i < options.length; i++) {
-        if (options[i].text.toLowerCase().includes(text.toLowerCase())) {
-            selectElement.selectedIndex = i;
-            selectElement.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-        }
-    }
-    return false;
-}
-
-function showNotification(message, type = 'info') {
-    // Create and show notification
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: ${type === 'success' ? '#4CAF50' : '#2196F3'};
-        color: white;
-        padding: 12px 20px;
-        border-radius: 4px;
-        z-index: 10000;
-        font-family: Arial, sans-serif;
-        font-size: 14px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    `;
-    notification.textContent = message;
-
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-        notification.remove();
-    }, 3000);
-}
-
-// Message listener for communication with popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('📨 Content script received message:', request);
-
-    if (request.action === 'fillForm' && request.resumeData) {
-        try {
-            const fieldsFound = fillFormWithResumeData(request.resumeData);
-            sendResponse({
-                success: true,
-                fieldsFound: fieldsFound,
-                message: `Successfully filled ${fieldsFound} fields`
-            });
-        } catch (error) {
-            console.error('❌ Error filling form:', error);
-            sendResponse({
-                success: false,
-                error: error.message
-            });
-        }
+    if (this.formFiller) {
+      return this.formFiller.fillFormWithResumeData(sampleData);
     } else {
-        sendResponse({ success: false, error: 'Invalid request' });
+      console.error('Form filler not initialized');
+      return null;
     }
+  }
+}
 
-    return true; // Keep message channel open for async response
-});
+// Initialize the orchestrator
+const orchestrator = new ContentScriptOrchestrator();
 
-console.log('✅ Resume Auto-Fill Content Script (Modular) - Ready!');
+// Wait for DOM to be ready, then initialize
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => orchestrator.initialize());
+} else {
+  orchestrator.initialize();
+}
+
+// Export to global scope for debugging
+window.contentScriptOrchestrator = orchestrator;
+
+// Legacy compatibility for popup.js
+window.fillFormWithResumeData = (data) => {
+  if (orchestrator.formFiller) {
+    return orchestrator.formFiller.fillFormWithResumeData(data);
+  } else {
+    console.error('Form filler not initialized');
+    return { success: false, fieldsCount: 0, message: 'Form filler not initialized' };
+  }
+};
+
+console.log('🎭 Content script orchestrator ready');

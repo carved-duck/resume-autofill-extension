@@ -20,9 +20,14 @@ class ResumeParser:
         self.text_content = ""
         self.parsed_data = {
             'personal': {},
+            'summary': '',
             'experience': [],
             'education': [],
-            'skills': []
+            'skills': [],
+            'technical_skills': [],
+            'projects': [],
+            'languages': [],
+            'certifications': []
         }
 
     def parse(self):
@@ -40,9 +45,13 @@ class ResumeParser:
         # Step 3: Parse structured data
         if self.text_content.strip():
             self.parse_personal_information()
+            self.parse_summary()
             self.parse_experience()
             self.parse_education()
             self.parse_skills()
+            self.parse_projects()
+            self.parse_languages()
+            self.parse_certifications()
             self.clean_and_validate_data()
 
         logger.info(f"✅ Parsing complete. Text length: {len(self.text_content)}")
@@ -134,17 +143,43 @@ class ResumeParser:
             if not re.search(email_pattern, line, re.IGNORECASE) and not re.search(r'\d{3}[-.]?\d{3}[-.]?\d{4}', line):
                 if len(line.split()) >= 2 and len(line) < 50:
                     personal['full_name'] = line
+
+                    # Split into first and last name
+                    name_parts = line.split()
+                    if len(name_parts) >= 2:
+                        personal['first_name'] = name_parts[0]
+                        personal['last_name'] = name_parts[-1]
                     break
 
-        # Address extraction (basic)
-        address_keywords = ['street', 'ave', 'avenue', 'road', 'rd', 'drive', 'dr', 'lane', 'ln']
+        # Address extraction (enhanced)
+        address_keywords = ['street', 'ave', 'avenue', 'road', 'rd', 'drive', 'dr', 'lane', 'ln', 'blvd', 'boulevard']
         for line in lines:
-            if any(keyword in line.lower() for keyword in address_keywords):
+            line_lower = line.lower()
+            if any(keyword in line_lower for keyword in address_keywords):
+                personal['address'] = line
+                break
+            # Also look for city, state patterns
+            elif re.search(r'\b[A-Z][a-z]+,\s*[A-Z]{2}\s+\d{5}', line):
                 personal['address'] = line
                 break
 
+        # LinkedIn URL extraction
+        linkedin_pattern = r'linkedin\.com/in/[\w\-]+'
+        linkedin_match = re.search(linkedin_pattern, self.text_content, re.IGNORECASE)
+        if linkedin_match:
+            personal['linkedin'] = 'https://' + linkedin_match.group()
+
+        # Website/Portfolio extraction
+        website_pattern = r'https?://[\w\.\-]+\.[a-z]{2,}'
+        website_matches = re.findall(website_pattern, self.text_content, re.IGNORECASE)
+        if website_matches:
+            for url in website_matches:
+                if 'linkedin' not in url.lower():  # Exclude LinkedIn URLs
+                    personal['website'] = url
+                    break
+
         self.parsed_data['personal'] = personal
-        logger.info(f"✅ Extracted personal info: {len(personal)} fields")
+        logger.info(f"✅ Extracted personal info: {', '.join(personal.keys())}")
 
     def parse_experience(self):
         """Parse work experience"""
@@ -254,48 +289,74 @@ class ResumeParser:
         """Parse skills and technologies"""
         logger.info("🛠️ Parsing skills...")
 
-        skills = set()
+        all_skills = set()
+        technical_skills = set()
 
         # Technical skills keywords
-        tech_skills = [
+        tech_skills_list = [
             'python', 'javascript', 'java', 'c++', 'c#', 'php', 'ruby', 'go', 'rust', 'swift',
             'react', 'vue', 'angular', 'node', 'express', 'django', 'flask', 'rails',
             'html', 'css', 'sass', 'less', 'bootstrap', 'tailwind',
             'sql', 'postgresql', 'mysql', 'mongodb', 'redis', 'elasticsearch',
-            'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git', 'github'
+            'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git', 'github',
+            'tensorflow', 'pytorch', 'pandas', 'numpy', 'scikit-learn', 'matplotlib',
+            'linux', 'windows', 'macos', 'unix', 'bash', 'powershell'
+        ]
+
+        # Soft skills keywords
+        soft_skills_list = [
+            'leadership', 'communication', 'teamwork', 'problem solving', 'analytical',
+            'creative', 'adaptable', 'organized', 'detail-oriented', 'time management',
+            'project management', 'customer service', 'presentation', 'negotiation'
         ]
 
         text_lower = self.text_content.lower()
 
-        # Find skills mentioned in text
-        for skill in tech_skills:
+        # Find technical skills mentioned in text
+        for skill in tech_skills_list:
             if skill in text_lower:
-                skills.add(skill.title())
+                technical_skills.add(skill.title())
+                all_skills.add(skill.title())
+
+        # Find soft skills mentioned in text
+        for skill in soft_skills_list:
+            if skill in text_lower:
+                all_skills.add(skill.title())
 
         # Look for skills section
         lines = [line.strip() for line in self.text_content.split('\n') if line.strip()]
         skills_section = False
+        technical_section = False
 
         for line in lines:
             line_lower = line.lower()
 
-            if any(keyword in line_lower for keyword in ['skills', 'technologies', 'tools']):
+            if any(keyword in line_lower for keyword in ['skills', 'technologies', 'tools', 'technical skills']):
                 skills_section = True
+                if 'technical' in line_lower:
+                    technical_section = True
                 continue
 
             if skills_section:
-                if any(keyword in line_lower for keyword in ['experience', 'education', 'projects']):
-                    break
+                if any(keyword in line_lower for keyword in ['experience', 'education', 'projects', 'languages']):
+                    skills_section = False
+                    technical_section = False
+                    continue
 
                 # Extract skills from lists
-                skill_words = re.split(r'[,•·\-\n]', line)
+                skill_words = re.split(r'[,•·\-\n|/]', line)
                 for word in skill_words:
                     word = word.strip()
-                    if len(word) > 2 and len(word) < 20:
-                        skills.add(word)
+                    if len(word) > 2 and len(word) < 25:
+                        all_skills.add(word)
 
-        self.parsed_data['skills'] = list(skills)[:20]
-        logger.info(f"✅ Extracted {len(skills)} skills")
+                        # Check if it's a technical skill
+                        if technical_section or any(tech in word.lower() for tech in tech_skills_list):
+                            technical_skills.add(word)
+
+        self.parsed_data['skills'] = list(all_skills)[:25]
+        self.parsed_data['technical_skills'] = list(technical_skills)[:15]
+        logger.info(f"✅ Extracted {len(all_skills)} total skills, {len(technical_skills)} technical skills")
 
     def clean_and_validate_data(self):
         """Clean and validate parsed data"""
@@ -325,3 +386,167 @@ class ResumeParser:
             self.parsed_data['experience'] = cleaned_experience
 
         logger.info("✅ Data cleaning completed")
+
+    def parse_summary(self):
+        """Parse professional summary or objective"""
+        logger.info("📝 Parsing summary/objective...")
+
+        lines = [line.strip() for line in self.text_content.split('\n') if line.strip()]
+        summary_text = ""
+
+        # Look for summary section
+        summary_section = False
+        summary_lines = []
+
+        for i, line in enumerate(lines):
+            line_lower = line.lower()
+
+            # Start of summary section
+            if any(keyword in line_lower for keyword in ['summary', 'objective', 'profile', 'about']):
+                summary_section = True
+                continue
+
+            # Stop at next section
+            if summary_section and any(keyword in line_lower for keyword in ['experience', 'education', 'skills', 'employment']):
+                break
+
+            if summary_section and line and len(line) > 20:
+                summary_lines.append(line)
+
+        if summary_lines:
+            summary_text = ' '.join(summary_lines[:3])  # Limit to first 3 lines
+
+        self.parsed_data['summary'] = summary_text
+        logger.info(f"✅ Extracted summary: {len(summary_text)} characters")
+
+    def parse_projects(self):
+        """Parse projects section"""
+        logger.info("🚀 Parsing projects...")
+
+        projects = []
+        lines = [line.strip() for line in self.text_content.split('\n') if line.strip()]
+
+        projects_section = False
+        current_project = {}
+
+        for line in lines:
+            line_lower = line.lower()
+
+            # Start of projects section
+            if any(keyword in line_lower for keyword in ['projects', 'portfolio']):
+                projects_section = True
+                continue
+
+            # Stop at next section
+            if projects_section and any(keyword in line_lower for keyword in ['experience', 'education', 'skills']):
+                if current_project:
+                    projects.append(current_project)
+                break
+
+            if projects_section:
+                # Project title (usually standalone lines with specific patterns)
+                if line and not line.startswith('-') and not line.startswith('•'):
+                    if current_project:
+                        projects.append(current_project)
+
+                    current_project = {
+                        'name': line.strip(),
+                        'description': '',
+                        'technologies': []
+                    }
+
+                # Project description (usually bullet points)
+                elif current_project and (line.startswith('-') or line.startswith('•')):
+                    if not current_project['description']:
+                        current_project['description'] = line.strip()
+
+        if current_project:
+            projects.append(current_project)
+
+        self.parsed_data['projects'] = projects[:5]  # Limit to 5 projects
+        logger.info(f"✅ Extracted {len(projects)} projects")
+
+    def parse_languages(self):
+        """Parse languages section"""
+        logger.info("🌐 Parsing languages...")
+
+        languages = []
+        text_lower = self.text_content.lower()
+
+        # Common languages
+        language_list = [
+            'english', 'spanish', 'french', 'german', 'italian', 'portuguese', 'chinese',
+            'japanese', 'korean', 'arabic', 'russian', 'hindi', 'mandarin', 'cantonese'
+        ]
+
+        # Look for languages section
+        lines = [line.strip() for line in self.text_content.split('\n') if line.strip()]
+        languages_section = False
+
+        for line in lines:
+            line_lower = line.lower()
+
+            if any(keyword in line_lower for keyword in ['languages', 'language']):
+                languages_section = True
+                continue
+
+            if languages_section:
+                if any(keyword in line_lower for keyword in ['experience', 'education', 'skills', 'projects']):
+                    break
+
+                # Extract languages from the line
+                for lang in language_list:
+                    if lang in line_lower:
+                        # Check for proficiency level
+                        proficiency = 'conversational'
+                        if any(level in line_lower for level in ['native', 'fluent']):
+                            proficiency = 'fluent'
+                        elif any(level in line_lower for level in ['basic', 'beginner']):
+                            proficiency = 'basic'
+
+                        languages.append({
+                            'language': lang.title(),
+                            'proficiency': proficiency
+                        })
+
+        self.parsed_data['languages'] = languages
+        logger.info(f"✅ Extracted {len(languages)} languages")
+
+    def parse_certifications(self):
+        """Parse certifications and licenses"""
+        logger.info("🏆 Parsing certifications...")
+
+        certifications = []
+        lines = [line.strip() for line in self.text_content.split('\n') if line.strip()]
+
+        certifications_section = False
+
+        for line in lines:
+            line_lower = line.lower()
+
+            # Start of certifications section
+            if any(keyword in line_lower for keyword in ['certifications', 'certificates', 'licenses']):
+                certifications_section = True
+                continue
+
+            # Stop at next section
+            if certifications_section and any(keyword in line_lower for keyword in ['experience', 'education', 'skills', 'projects']):
+                break
+
+            if certifications_section or any(cert in line_lower for cert in ['certified', 'certificate', 'license']):
+                if line and len(line) > 5:
+                    cert_entry = {
+                        'name': line.strip(),
+                        'issuer': '',
+                        'year': ''
+                    }
+
+                    # Extract year
+                    year_match = re.search(r'\b(20\d{2}|19\d{2})\b', line)
+                    if year_match:
+                        cert_entry['year'] = year_match.group()
+
+                    certifications.append(cert_entry)
+
+        self.parsed_data['certifications'] = certifications[:5]  # Limit to 5 certifications
+        logger.info(f"✅ Extracted {len(certifications)} certifications")

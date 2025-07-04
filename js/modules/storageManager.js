@@ -5,11 +5,14 @@ export class StorageManager {
   }
 
   async saveResumeData(data) {
+    console.log('💾 Saving resume data:', data);
     return new Promise((resolve, reject) => {
       chrome.storage.local.set({ [this.storageKey]: data }, function() {
         if (chrome.runtime.lastError) {
+          console.error('❌ Failed to save resume data:', chrome.runtime.lastError);
           reject(chrome.runtime.lastError);
         } else {
+          console.log('✅ Resume data saved successfully');
           resolve();
         }
       });
@@ -17,12 +20,16 @@ export class StorageManager {
   }
 
   async getResumeData() {
+    console.log('📖 Loading resume data...');
     return new Promise((resolve, reject) => {
       chrome.storage.local.get([this.storageKey], function(result) {
         if (chrome.runtime.lastError) {
+          console.error('❌ Failed to load resume data:', chrome.runtime.lastError);
           reject(chrome.runtime.lastError);
         } else {
-          resolve(result[this.storageKey] || null);
+          const data = result[this.storageKey] || null;
+          console.log('📋 Loaded resume data:', data ? 'Data found' : 'No data found');
+          resolve(data);
         }
       });
     });

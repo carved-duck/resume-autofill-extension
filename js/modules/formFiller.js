@@ -1,9 +1,10 @@
-// Form Filler module for Chrome tab communication and form filling
+// Enhanced Form Filler module for intelligent form filling and dynamic page interaction
 import { isSupportedSite } from './config.js';
 
 export class FormFiller {
   constructor() {
-    // Initialize any needed state
+    this.isAnalyzing = false;
+    this.currentAnalysis = null;
   }
 
   async fillForm(resumeData) {
@@ -31,7 +32,7 @@ export class FormFiller {
           resolve({
             success: true,
             fieldsCount: response.fieldsCount,
-            message: `Successfully filled ${response.fieldsCount} fields!`
+            message: response.message
           });
         } else {
           reject(new Error(response.error || 'Unknown error'));
@@ -40,37 +41,53 @@ export class FormFiller {
     });
   }
 
+  // Enhanced page analysis with dynamic intelligence
   async analyzePageStructure() {
     const currentTab = await this.getCurrentTab();
 
-    return new Promise((resolve, reject) => {
-      chrome.tabs.sendMessage(currentTab.id, {
-        action: 'analyzePageStructure'
-      }, (response) => {
-        if (!response) {
-          reject(new Error('Could not analyze page. Make sure content script is loaded.'));
-          return;
-        }
+    if (this.isAnalyzing) {
+      throw new Error('Page analysis already in progress...');
+    }
 
-        if (response.success) {
-          resolve({
-            analysis: response.analysis,
-            insights: response.insights,
-            editableButtons: response.editableButtons
-          });
-        } else {
-          reject(new Error(response.error || 'Page analysis failed'));
-        }
+    this.isAnalyzing = true;
+
+    try {
+      return new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(currentTab.id, {
+          action: 'analyzePageStructure'
+        }, (response) => {
+          this.isAnalyzing = false;
+
+          if (!response) {
+            reject(new Error('Could not analyze page. Make sure content script is loaded.'));
+            return;
+          }
+
+          if (response.success) {
+            this.currentAnalysis = response.analysis;
+            resolve({
+              analysis: response.analysis,
+              recommendations: response.recommendations,
+              monitoring: response.monitoring
+            });
+          } else {
+            reject(new Error(response.error || 'Page analysis failed'));
+          }
+        });
       });
-    });
+    } catch (error) {
+      this.isAnalyzing = false;
+      throw error;
+    }
   }
 
-  async tryClickEditButtons() {
+  // Try intelligent buttons with enhanced feedback
+  async tryIntelligentButtons() {
     const currentTab = await this.getCurrentTab();
 
     return new Promise((resolve, reject) => {
       chrome.tabs.sendMessage(currentTab.id, {
-        action: 'tryClickToReveal'
+        action: 'tryIntelligentButtons'
       }, (response) => {
         if (!response) {
           reject(new Error('Could not communicate with page'));
@@ -80,15 +97,69 @@ export class FormFiller {
         if (response.success) {
           resolve({
             success: true,
-            buttonsClicked: response.buttonsClicked,
-            fieldsRevealed: response.fieldsRevealed,
-            message: `Clicked ${response.buttonsClicked} buttons, ${response.fieldsRevealed} new fields revealed`
+            results: response.results,
+            message: response.message
           });
         } else {
-          reject(new Error(response.error || 'Click operation failed'));
+          reject(new Error(response.error || 'Intelligent button interaction failed'));
         }
       });
     });
+  }
+
+  // Start dynamic monitoring
+  async startMonitoring() {
+    const currentTab = await this.getCurrentTab();
+
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(currentTab.id, {
+        action: 'startMonitoring'
+      }, (response) => {
+        if (!response) {
+          reject(new Error('Could not start monitoring'));
+          return;
+        }
+
+        if (response.success) {
+          resolve({
+            success: true,
+            message: response.message
+          });
+        } else {
+          reject(new Error(response.error || 'Failed to start monitoring'));
+        }
+      });
+    });
+  }
+
+  // Stop dynamic monitoring
+  async stopMonitoring() {
+    const currentTab = await this.getCurrentTab();
+
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(currentTab.id, {
+        action: 'stopMonitoring'
+      }, (response) => {
+        if (!response) {
+          reject(new Error('Could not stop monitoring'));
+          return;
+        }
+
+        if (response.success) {
+          resolve({
+            success: true,
+            message: response.message
+          });
+        } else {
+          reject(new Error(response.error || 'Failed to stop monitoring'));
+        }
+      });
+    });
+  }
+
+  // Legacy method for backward compatibility
+  async tryClickEditButtons() {
+    return this.tryIntelligentButtons();
   }
 
   async getCurrentTab() {
@@ -111,11 +182,46 @@ export class FormFiller {
         chrome.tabs.sendMessage(currentTab.id, {
           action: 'ping'
         }, (response) => {
-          resolve(!!response);
+          resolve(!!response?.success);
         });
       });
     } catch (error) {
       return false;
     }
+  }
+
+  // Get enhanced content script info
+  async getContentScriptInfo() {
+    try {
+      const currentTab = await this.getCurrentTab();
+
+      return new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(currentTab.id, {
+          action: 'ping'
+        }, (response) => {
+          if (response?.success) {
+            resolve({
+              ready: true,
+              features: response.features || [],
+              message: response.message
+            });
+          } else {
+            reject(new Error('Content script not ready'));
+          }
+        });
+      });
+    } catch (error) {
+      throw new Error('Failed to get content script info: ' + error.message);
+    }
+  }
+
+  // Get current analysis data
+  getCurrentAnalysis() {
+    return this.currentAnalysis;
+  }
+
+  // Check if analysis is in progress
+  isAnalysisInProgress() {
+    return this.isAnalyzing;
   }
 }

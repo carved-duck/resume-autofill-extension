@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Resume Auto-Fill Assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Automatically fill job applications using your resume data",
 
   "permissions": [
@@ -43,10 +43,15 @@
         "https://*.wantedly.com/*",
         "https://*.gaijinpot.com/*"
       ],
-      "js": ["content/content_main.js"],
+      "js": [
+        "content/selectors.js",
+        "content/utils.js",
+        "content/formFiller.js",
+        "content/pageAnalyzer.js",
+        "content/content_main.js"
+      ],
       "css": ["content.css"],
-      "run_at": "document_end",
-      "type": "module"
+      "run_at": "document_end"
     }
   ],
 
@@ -58,7 +63,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["icons/*"],
+      "resources": ["icons/*", "js/modules/linkedinExtractor.js"],
       "matches": ["<all_urls>"]
     }
   ]
