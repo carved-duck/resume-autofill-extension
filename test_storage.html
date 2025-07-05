@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Storage Test</title>
+</head>
+<body>
+    <h1>Chrome Storage Test</h1>
+    <button onclick="testSave()">Test Save</button>
+    <button onclick="testLoad()">Test Load</button>
+    <button onclick="testClear()">Test Clear</button>
+    <div id="result"></div>
+
+    <script>
+        function testSave() {
+            const testData = {
+                data: {
+                    personal_info: {
+                        full_name: "Test User",
+                        email: "test@example.com"
+                    }
+                },
+                source: 'test',
+                timestamp: new Date().toISOString(),
+                version: '1.0'
+            };
+
+            chrome.storage.local.set({
+                'resumeData': testData,
+                'lastUpdated': testData.timestamp
+            }, () => {
+                if (chrome.runtime.lastError) {
+                    document.getElementById('result').innerHTML = '❌ Save failed: ' + chrome.runtime.lastError.message;
+                } else {
+                    document.getElementById('result').innerHTML = '✅ Save successful!';
+                }
+            });
+        }
+
+        function testLoad() {
+            chrome.storage.local.get(['resumeData', 'lastUpdated'], (result) => {
+                if (chrome.runtime.lastError) {
+                    document.getElementById('result').innerHTML = '❌ Load failed: ' + chrome.runtime.lastError.message;
+                } else {
+                    document.getElementById('result').innerHTML = '📂 Load result: ' + JSON.stringify(result, null, 2);
+                }
+            });
+        }
+
+        function testClear() {
+            chrome.storage.local.remove(['resumeData', 'lastUpdated'], () => {
+                if (chrome.runtime.lastError) {
+                    document.getElementById('result').innerHTML = '❌ Clear failed: ' + chrome.runtime.lastError.message;
+                } else {
+                    document.getElementById('result').innerHTML = '🗑️ Clear successful!';
+                }
+            });
+        }
+    </script>
+</body>
+</html>

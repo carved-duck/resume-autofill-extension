@@ -165,147 +165,227 @@ if (window.resumeAutoFillUtilsLoaded) {
 
   class StorageManager {
     // Use Chrome storage API for cross-tab persistence
-    static async saveResumeData(data, source = 'unknown') {
-      try {
-        const timestamp = new Date().toISOString();
-        const storageData = {
-          data: data,
-          source: source, // 'linkedin', 'pdf', 'manual'
-          timestamp: timestamp,
-          version: '1.0'
-        };
-
-        // Save to Chrome storage (persists across tabs and sessions)
-        await chrome.storage.local.set({
-          'resumeData': storageData,
-          'lastUpdated': timestamp
-        });
-
-        console.log(`💾 Resume data saved to Chrome storage (source: ${source})`);
-
-        // Also save to localStorage as backup
-        localStorage.setItem('resumeData', JSON.stringify(storageData));
-
-        return true;
-      } catch (error) {
-        console.error('❌ Failed to save resume data:', error);
-
-        // Fallback to localStorage if Chrome storage fails
+    static saveResumeData(data, source = 'unknown') {
+      return new Promise((resolve, reject) => {
         try {
+          const timestamp = new Date().toISOString();
           const storageData = {
             data: data,
-            source: source,
-            timestamp: new Date().toISOString(),
+            source: source, // 'linkedin', 'pdf', 'manual'
+            timestamp: timestamp,
             version: '1.0'
           };
-          localStorage.setItem('resumeData', JSON.stringify(storageData));
-          console.log('💾 Fallback: Saved to localStorage');
-          return true;
-        } catch (fallbackError) {
-          console.error('❌ Both Chrome storage and localStorage failed:', fallbackError);
-          return false;
+
+          // Save to Chrome storage (persists across tabs and sessions)
+          chrome.storage.local.set({
+            'resumeData': storageData,
+            'lastUpdated': timestamp
+          }, () => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Chrome storage failed:', chrome.runtime.lastError);
+
+              // Try background script as fallback
+              chrome.runtime.sendMessage({
+                action: 'saveResumeData',
+                data: storageData
+              }, (response) => {
+                if (response && response.success) {
+                  console.log('💾 Saved via background script (source: ${source})');
+                  resolve(true);
+                } else {
+                  // Fallback to localStorage
+                  try {
+                    localStorage.setItem('resumeData', JSON.stringify(storageData));
+                    console.log('💾 Fallback: Saved to localStorage');
+                    resolve(true);
+                  } catch (fallbackError) {
+                    console.error('❌ All storage methods failed:', fallbackError);
+                    reject(fallbackError);
+                  }
+                }
+              });
+            } else {
+              console.log(`💾 Resume data saved to Chrome storage (source: ${source})`);
+
+              // Also save to localStorage as backup
+              try {
+                localStorage.setItem('resumeData', JSON.stringify(storageData));
+              } catch (localError) {
+                console.warn('⚠️ Failed to save to localStorage backup:', localError);
+              }
+
+              resolve(true);
+            }
+          });
+
+        } catch (error) {
+          console.error('❌ Failed to save resume data:', error);
+          reject(error);
         }
-      }
+      });
     }
 
-    static async loadResumeData() {
-      try {
-        // Try Chrome storage first
-        const result = await chrome.storage.local.get(['resumeData', 'lastUpdated']);
+    static loadResumeData() {
+      return new Promise((resolve, reject) => {
+        try {
+          // Try Chrome storage first
+          chrome.storage.local.get(['resumeData', 'lastUpdated'], (result) => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Chrome storage failed:', chrome.runtime.lastError);
 
-        if (result.resumeData) {
-          console.log(`📂 Resume data loaded from Chrome storage (source: ${result.resumeData.source}, updated: ${result.lastUpdated})`);
-          return result.resumeData;
+              // Try background script as fallback
+              chrome.runtime.sendMessage({
+                action: 'loadResumeData'
+              }, (response) => {
+                if (response && response.success && response.data.resumeData) {
+                  console.log(`📂 Resume data loaded via background script (source: ${response.data.resumeData.source})`);
+                  resolve(response.data.resumeData);
+                } else {
+                  // Fallback to localStorage
+                  try {
+                    const localData = localStorage.getItem('resumeData');
+                    if (localData) {
+                      const parsed = JSON.parse(localData);
+                      console.log(`📂 Fallback: Resume data loaded from localStorage (source: ${parsed.source})`);
+                      resolve(parsed);
+                    } else {
+                      console.log('📂 No resume data found in storage');
+                      resolve(null);
+                    }
+                  } catch (fallbackError) {
+                    console.error('❌ Failed to load from localStorage:', fallbackError);
+                    resolve(null);
+                  }
+                }
+              });
+            } else {
+              if (result.resumeData) {
+                console.log(`📂 Resume data loaded from Chrome storage (source: ${result.resumeData.source}, updated: ${result.lastUpdated})`);
+                resolve(result.resumeData);
+              } else {
+                // Fallback to localStorage
+                try {
+                  const localData = localStorage.getItem('resumeData');
+                  if (localData) {
+                    const parsed = JSON.parse(localData);
+                    console.log(`📂 Fallback: Resume data loaded from localStorage (source: ${parsed.source})`);
+                    resolve(parsed);
+                  } else {
+                    console.log('📂 No resume data found in storage');
+                    resolve(null);
+                  }
+                } catch (fallbackError) {
+                  console.log('📂 No resume data found in storage');
+                  resolve(null);
+                }
+              }
+            }
+          });
+
+        } catch (error) {
+          console.error('❌ Failed to load resume data:', error);
+          resolve(null);
         }
-
-        // Fallback to localStorage
-        const localData = localStorage.getItem('resumeData');
-        if (localData) {
-          const parsed = JSON.parse(localData);
-          console.log(`📂 Fallback: Resume data loaded from localStorage (source: ${parsed.source})`);
-          return parsed;
-        }
-
-        console.log('📂 No resume data found in storage');
-        return null;
-
-      } catch (error) {
-        console.error('❌ Failed to load resume data:', error);
-        return null;
-      }
+      });
     }
 
-    static async clearResumeData() {
-      try {
-        // Clear from Chrome storage
-        await chrome.storage.local.remove(['resumeData', 'lastUpdated']);
+    static clearResumeData() {
+      return new Promise((resolve, reject) => {
+        try {
+          // Clear from Chrome storage
+          chrome.storage.local.remove(['resumeData', 'lastUpdated'], () => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Failed to clear Chrome storage:', chrome.runtime.lastError);
+            }
 
-        // Clear from localStorage
-        localStorage.removeItem('resumeData');
+            // Clear from localStorage
+            try {
+              localStorage.removeItem('resumeData');
+            } catch (localError) {
+              console.warn('⚠️ Failed to clear localStorage:', localError);
+            }
 
-        console.log('🗑️ Resume data cleared from all storage');
-        return true;
-      } catch (error) {
-        console.error('❌ Failed to clear resume data:', error);
-        return false;
-      }
+            console.log('🗑️ Resume data cleared from all storage');
+            resolve(true);
+          });
+        } catch (error) {
+          console.error('❌ Failed to clear resume data:', error);
+          reject(error);
+        }
+      });
     }
 
-    static async getStorageInfo() {
-      try {
-        const chromeData = await chrome.storage.local.get(['resumeData', 'lastUpdated']);
-        const localData = localStorage.getItem('resumeData');
+    static getStorageInfo() {
+      return new Promise((resolve, reject) => {
+        try {
+          chrome.storage.local.get(['resumeData', 'lastUpdated'], (result) => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Failed to get Chrome storage info:', chrome.runtime.lastError);
+              resolve(null);
+              return;
+            }
 
-        return {
-          hasChromeStorage: !!chromeData.resumeData,
-          hasLocalStorage: !!localData,
-          lastUpdated: chromeData.lastUpdated || 'Never',
-          source: chromeData.resumeData?.source || 'Unknown',
-          dataSize: JSON.stringify(chromeData.resumeData || {}).length
-        };
-      } catch (error) {
-        console.error('❌ Failed to get storage info:', error);
-        return null;
-      }
+            const localData = localStorage.getItem('resumeData');
+
+            resolve({
+              hasChromeStorage: !!result.resumeData,
+              hasLocalStorage: !!localData,
+              lastUpdated: result.lastUpdated || 'Never',
+              source: result.resumeData?.source || 'Unknown',
+              dataSize: JSON.stringify(result.resumeData || {}).length
+            });
+          });
+        } catch (error) {
+          console.error('❌ Failed to get storage info:', error);
+          resolve(null);
+        }
+      });
     }
 
     // Legacy methods for backward compatibility
-    static async saveToLocalStorage(key, data) {
-      try {
-        const serialized = JSON.stringify(data);
-        localStorage.setItem(key, serialized);
-        console.log(`💾 Saved to localStorage: ${key}`);
-        return true;
-      } catch (error) {
-        console.error('❌ Failed to save to localStorage:', error);
-        return false;
-      }
-    }
-
-    static async loadFromLocalStorage(key) {
-      try {
-        const serialized = localStorage.getItem(key);
-        if (serialized) {
-          const data = JSON.parse(serialized);
-          console.log(`📂 Loaded from localStorage: ${key}`);
-          return data;
+    static saveToLocalStorage(key, data) {
+      return new Promise((resolve, reject) => {
+        try {
+          const serialized = JSON.stringify(data);
+          localStorage.setItem(key, serialized);
+          console.log(`💾 Saved to localStorage: ${key}`);
+          resolve(true);
+        } catch (error) {
+          console.error('❌ Failed to save to localStorage:', error);
+          reject(error);
         }
-        return null;
-      } catch (error) {
-        console.error('❌ Failed to load from localStorage:', error);
-        return null;
-      }
+      });
     }
 
-    static async clearLocalStorage(key) {
-      try {
-        localStorage.removeItem(key);
-        console.log(`🗑️ Cleared from localStorage: ${key}`);
-        return true;
-      } catch (error) {
-        console.error('❌ Failed to clear localStorage:', error);
-        return false;
-      }
+    static loadFromLocalStorage(key) {
+      return new Promise((resolve, reject) => {
+        try {
+          const serialized = localStorage.getItem(key);
+          if (serialized) {
+            const data = JSON.parse(serialized);
+            console.log(`📂 Loaded from localStorage: ${key}`);
+            resolve(data);
+          } else {
+            resolve(null);
+          }
+        } catch (error) {
+          console.error('❌ Failed to load from localStorage:', error);
+          reject(error);
+        }
+      });
+    }
+
+    static clearLocalStorage(key) {
+      return new Promise((resolve, reject) => {
+        try {
+          localStorage.removeItem(key);
+          console.log(`🗑️ Cleared from localStorage: ${key}`);
+          resolve(true);
+        } catch (error) {
+          console.error('❌ Failed to clear localStorage:', error);
+          reject(error);
+        }
+      });
     }
   }
 

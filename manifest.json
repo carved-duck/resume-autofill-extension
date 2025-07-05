@@ -29,6 +29,10 @@
     "default_title": "Resume Auto-Fill"
   },
 
+  "background": {
+    "service_worker": "background.js"
+  },
+
   "content_scripts": [
     {
       "matches": [

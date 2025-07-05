@@ -1,21 +1,79 @@
-// Background script for Resume Auto-Fill Extension
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('Resume Auto-Fill Extension installed');
+// Background script for storage debugging and cross-tab communication
+console.log('🔄 Background script loaded');
+
+// Listen for storage changes
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  console.log('📦 Storage changed:', changes, 'in namespace:', namespace);
+
+  // Notify all tabs about storage changes
+  chrome.tabs.query({}, (tabs) => {
+    tabs.forEach(tab => {
+      if (tab.url && !tab.url.startsWith('chrome://')) {
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'storageChanged',
+          changes: changes
+        }).catch(() => {
+          // Ignore errors for tabs that don't have content scripts
+        });
+      }
+    });
+  });
 });
 
-// Handle extension icon click (optional)
-chrome.action.onClicked.addListener((tab) => {
-  // This will open the popup, which is already configured in manifest.json
-  console.log('Extension icon clicked');
-});
+// Handle messages from content scripts
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('📨 Background received message:', message);
 
-// Listen for messages from content scripts or popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background received message:', request);
-
-  if (request.action === 'log') {
-    console.log('Content script log:', request.message);
+  if (message.action === 'saveResumeData') {
+    chrome.storage.local.set({
+      'resumeData': message.data,
+      'lastUpdated': new Date().toISOString()
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Background storage save failed:', chrome.runtime.lastError);
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      } else {
+        console.log('✅ Background storage save successful');
+        sendResponse({ success: true });
+      }
+    });
+    return true; // Keep message channel open for async response
   }
 
-  sendResponse({received: true});
+  if (message.action === 'loadResumeData') {
+    chrome.storage.local.get(['resumeData', 'lastUpdated'], (result) => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Background storage load failed:', chrome.runtime.lastError);
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      } else {
+        console.log('📂 Background storage load result:', result);
+        sendResponse({ success: true, data: result });
+      }
+    });
+    return true; // Keep message channel open for async response
+  }
+
+  if (message.action === 'getStorageInfo') {
+    chrome.storage.local.get(['resumeData', 'lastUpdated'], (result) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse({
+          success: true,
+          info: {
+            hasData: !!result.resumeData,
+            source: result.resumeData?.source || 'Unknown',
+            lastUpdated: result.lastUpdated || 'Never',
+            dataSize: JSON.stringify(result.resumeData || {}).length
+          }
+        });
+      }
+    });
+    return true; // Keep message channel open for async response
+  }
+});
+
+// Debug storage on startup
+chrome.storage.local.get(['resumeData', 'lastUpdated'], (result) => {
+  console.log('🔍 Background storage check on startup:', result);
 });

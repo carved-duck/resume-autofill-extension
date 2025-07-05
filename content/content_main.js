@@ -141,19 +141,27 @@ if (window.resumeAutoFillContentScriptLoaded) {
         // If no data provided, try to load from storage
         if (!resumeData) {
           console.log('📂 No data provided, attempting to load from storage...');
-          const storedData = await window.StorageManager?.loadResumeData();
 
-          if (storedData && storedData.data) {
-            resumeData = storedData.data;
-            console.log(`📂 Using stored resume data (source: ${storedData.source}, updated: ${storedData.timestamp})`);
+          try {
+            const storedData = await window.StorageManager?.loadResumeData();
+            console.log('📂 Storage load result:', storedData);
 
-            window.NotificationManager?.showNotification(
-              `Using stored resume data from ${storedData.source}`,
-              'info',
-              3000
-            );
-          } else {
-            throw new Error('No resume data available. Please extract from LinkedIn or upload a PDF first.');
+            if (storedData && storedData.data) {
+              resumeData = storedData.data;
+              console.log(`📂 Using stored resume data (source: ${storedData.source}, updated: ${storedData.timestamp})`);
+
+              window.NotificationManager?.showNotification(
+                `Using stored resume data from ${storedData.source}`,
+                'info',
+                3000
+              );
+            } else {
+              console.log('📂 No stored data found or invalid format');
+              throw new Error('No resume data available. Please extract from LinkedIn or upload a PDF first.');
+            }
+          } catch (storageError) {
+            console.error('❌ Storage load error:', storageError);
+            throw new Error('Failed to load stored resume data. Please extract from LinkedIn or upload a PDF first.');
           }
         }
 
@@ -225,8 +233,13 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
           // Save extracted data to storage
           if (extractedData && window.StorageManager) {
-            await window.StorageManager.saveResumeData(extractedData, 'linkedin');
-            console.log('💾 LinkedIn data saved to storage for cross-tab access');
+            try {
+              await window.StorageManager.saveResumeData(extractedData, 'linkedin');
+              console.log('💾 LinkedIn data saved to storage for cross-tab access');
+            } catch (saveError) {
+              console.error('❌ Failed to save LinkedIn data to storage:', saveError);
+              // Continue anyway - data is still in memory
+            }
           }
 
           // Store in current session

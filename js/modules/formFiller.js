@@ -19,10 +19,23 @@ export class FormFiller {
     }
 
     return new Promise((resolve, reject) => {
+      // Set a timeout to prevent hanging
+      const timeout = setTimeout(() => {
+        reject(new Error('Form filling communication timeout'));
+      }, 10000);
+
       chrome.tabs.sendMessage(currentTab.id, {
         action: 'fillForm',
         data: resumeData
       }, (response) => {
+        clearTimeout(timeout);
+
+        if (chrome.runtime.lastError) {
+          console.error('❌ Content script communication failed:', chrome.runtime.lastError.message);
+          reject(new Error('Could not communicate with page. Make sure you\'re on a supported site and refresh the page.'));
+          return;
+        }
+
         if (!response) {
           reject(new Error('Could not communicate with page. Make sure you\'re on a supported site.'));
           return;
@@ -46,10 +59,23 @@ export class FormFiller {
     const currentTab = await this.getCurrentTab();
 
     return new Promise((resolve, reject) => {
+      // Set a timeout to prevent hanging
+      const timeout = setTimeout(() => {
+        reject(new Error('Form filling communication timeout'));
+      }, 10000);
+
       chrome.tabs.sendMessage(currentTab.id, {
         action: 'fillForm'
         // No data - content script will load from storage
       }, (response) => {
+        clearTimeout(timeout);
+
+        if (chrome.runtime.lastError) {
+          console.error('❌ Content script communication failed:', chrome.runtime.lastError.message);
+          reject(new Error('Could not communicate with page. Make sure you\'re on a supported site and refresh the page.'));
+          return;
+        }
+
         if (!response) {
           reject(new Error('Could not communicate with page. Make sure you\'re on a supported site.'));
           return;
@@ -223,22 +249,36 @@ export class FormFiller {
       const currentTab = await this.getCurrentTab();
 
       return new Promise((resolve, reject) => {
+        // Set a timeout to prevent hanging
+        const timeout = setTimeout(() => {
+          reject(new Error('Content script communication timeout'));
+        }, 3000);
+
         chrome.tabs.sendMessage(currentTab.id, {
           action: 'ping'
         }, (response) => {
-          if (response?.success) {
+          clearTimeout(timeout);
+
+          if (chrome.runtime.lastError) {
+            console.warn('⚠️ Content script communication failed:', chrome.runtime.lastError.message);
+            reject(new Error('Content script not available'));
+            return;
+          }
+
+          if (response && response.success) {
             resolve({
               ready: true,
               features: response.features || [],
-              message: response.message
+              message: response.message || 'Content script is active'
             });
           } else {
-            reject(new Error('Content script not ready'));
+            reject(new Error('Content script not responding'));
           }
         });
       });
     } catch (error) {
-      throw new Error('Failed to get content script info: ' + error.message);
+      console.error('❌ Failed to get content script info:', error);
+      throw error;
     }
   }
 

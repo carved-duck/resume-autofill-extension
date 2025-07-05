@@ -25,7 +25,7 @@ class PopupController {
       this.resumeData = await this.storageManager.getResumeData();
       const storageInfo = await this.storageManager.getStorageInfo();
 
-      if (this.resumeData && storageInfo.hasData) {
+      if (this.resumeData && storageInfo && storageInfo.hasData) {
         this.uiManager.showResumeData(this.resumeData);
         this.uiManager.hideDataSourceSelection();
 
@@ -35,7 +35,7 @@ class PopupController {
           `Using stored resume data from ${storageInfo.source} (${timeSince})`,
           'info'
         );
-      } else if (storageInfo.hasData) {
+      } else if (storageInfo && storageInfo.hasData) {
         // Show storage info section without resume data loaded
         this.showStorageInfo(storageInfo);
         this.uiManager.showDataSourceSelection();
@@ -49,13 +49,53 @@ class PopupController {
       // Setup event listeners
       this.setupEventListeners();
 
-      // Check content script readiness
-      await this.checkContentScriptStatus();
+      // Check content script readiness (don't fail initialization if this fails)
+      try {
+        await this.checkContentScriptStatus();
+      } catch (error) {
+        console.warn('⚠️ Content script status check failed:', error.message);
+        // Don't show error to user - just log it
+      }
 
       console.log('✅ Enhanced popup initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize popup:', error);
       this.uiManager.showStatus('Failed to initialize extension', 'error');
+    }
+  }
+
+  // Helper method to check if current tab is on a supported site
+  async isOnSupportedSite() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+      if (!tab || !tab.url) {
+        return false;
+      }
+
+      // Check if we're on a chrome:// or chrome-extension:// page
+      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+        return false;
+      }
+
+      // Check if we're on a supported site
+      const supportedSites = [
+        'linkedin.com',
+        'indeed.com',
+        'glassdoor.com',
+        'monster.com',
+        'ziprecruiter.com',
+        'workday.com',
+        'greenhouse.io',
+        'lever.co',
+        'wantedly.com',
+        'gaijinpot.com'
+      ];
+
+      return supportedSites.some(site => tab.url.includes(site));
+    } catch (error) {
+      console.error('❌ Failed to check if on supported site:', error);
+      return false;
     }
   }
 
@@ -106,27 +146,55 @@ class PopupController {
       // Get current tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-      if (!tab || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+      if (!tab || !tab.url) {
+        this.uiManager.showStatus('No active tab found', 'warning');
+        return;
+      }
+
+      // Check if we're on a supported site
+      const supportedSites = [
+        'linkedin.com',
+        'indeed.com',
+        'glassdoor.com',
+        'monster.com',
+        'ziprecruiter.com',
+        'workday.com',
+        'greenhouse.io',
+        'lever.co',
+        'wantedly.com',
+        'gaijinpot.com'
+      ];
+
+      const isSupportedSite = supportedSites.some(site => tab.url.includes(site));
+
+      if (!isSupportedSite) {
+        this.uiManager.showStatus('Navigate to a supported job site to enable form filling', 'info');
+        return;
+      }
+
+      // Check if we're on a chrome:// or chrome-extension:// page
+      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
         this.uiManager.showStatus('Navigate to a job site to enable form filling', 'info');
         return;
       }
 
-      const info = await this.formFiller.getContentScriptInfo();
-      if (info.ready) {
-        console.log('🔗 Content script ready with features:', info.features);
-        this.uiManager.showStatus('Extension ready for intelligent form filling', 'success');
+      // Try to communicate with content script
+      try {
+        const info = await this.formFiller.getContentScriptInfo();
+        if (info.ready) {
+          console.log('🔗 Content script ready with features:', info.features);
+          this.uiManager.showStatus('Extension ready for intelligent form filling', 'success');
+        }
+      } catch (error) {
+        console.warn('⚠️ Content script not ready:', error.message);
+
+        // Content scripts are loaded via manifest, so if they're not ready,
+        // it's likely the page needs to be refreshed or isn't supported
+        this.uiManager.showStatus('Please refresh the page to enable form filling', 'warning');
       }
     } catch (error) {
-      console.warn('⚠️ Content script not ready:', error.message);
-
-      // Content scripts are loaded via manifest, so if they're not ready,
-      // it's likely the page needs to be refreshed or isn't supported
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab && tab.url && !tab.url.startsWith('chrome://')) {
-        this.uiManager.showStatus('Please refresh the page to enable form filling', 'warning');
-      } else {
-        this.uiManager.showStatus('Navigate to a supported job site to enable form filling', 'info');
-      }
+      console.error('❌ Failed to check content script status:', error);
+      this.uiManager.showStatus('Unable to check extension status', 'error');
     }
   }
 
@@ -359,6 +427,13 @@ class PopupController {
 
   async handleAutoFill() {
     try {
+      // Check if we're on a supported site
+      const isSupported = await this.isOnSupportedSite();
+      if (!isSupported) {
+        this.uiManager.showStatus('Navigate to a supported job site to enable form filling', 'info');
+        return;
+      }
+
       this.uiManager.showStatus('Intelligently filling form...', 'info');
 
       let result;
@@ -375,6 +450,7 @@ class PopupController {
 
       this.uiManager.showStatus(result.message, 'success');
     } catch (error) {
+      console.error('❌ Auto-fill failed:', error);
       this.uiManager.showStatus('Auto-fill failed: ' + error.message, 'error');
     }
   }
