@@ -61,36 +61,39 @@ export class UiManager {
   showResumeData(data) {
     const resumeDataDiv = this.elements.resumeDataDiv;
     const dataPreview = this.elements.dataPreview;
+    const noDataMessage = document.getElementById('no-data-message');
 
     // Show resume data section
     resumeDataDiv.style.display = 'block';
+    if (noDataMessage) noDataMessage.style.display = 'none';
+    console.log('🎨 [UI] Showing resume data:', data);
 
     // Generate preview HTML
     let previewHtml = '<div class="data-section">';
 
     // Personal Information
-    if (data.personal) {
+    if (data.personal_info) {
       previewHtml += '<div class="data-group">';
       previewHtml += '<h4>👤 Personal Information</h4>';
       previewHtml += '<div class="data-items">';
 
-      if (data.personal.full_name) {
-        previewHtml += `<div class="data-item"><strong>Name:</strong> ${data.personal.full_name}</div>`;
+      if (data.personal_info.full_name) {
+        previewHtml += `<div class="data-item"><strong>Name:</strong> ${data.personal_info.full_name}</div>`;
       }
-      if (data.personal.email) {
-        previewHtml += `<div class="data-item"><strong>Email:</strong> ${data.personal.email}</div>`;
+      if (data.personal_info.email) {
+        previewHtml += `<div class="data-item"><strong>Email:</strong> ${data.personal_info.email}</div>`;
       }
-      if (data.personal.phone) {
-        previewHtml += `<div class="data-item"><strong>Phone:</strong> ${data.personal.phone}</div>`;
+      if (data.personal_info.phone) {
+        previewHtml += `<div class="data-item"><strong>Phone:</strong> ${data.personal_info.phone}</div>`;
       }
-      if (data.personal.address) {
-        previewHtml += `<div class="data-item"><strong>Address:</strong> ${data.personal.address}</div>`;
+      if (data.personal_info.location) {
+        previewHtml += `<div class="data-item"><strong>Location:</strong> ${data.personal_info.location}</div>`;
       }
-      if (data.personal.linkedin) {
-        previewHtml += `<div class="data-item"><strong>LinkedIn:</strong> <a href="${data.personal.linkedin}" target="_blank" style="color: #fff; text-decoration: underline;">Profile</a></div>`;
+      if (data.personal_info.headline) {
+        previewHtml += `<div class="data-item"><strong>Headline:</strong> ${data.personal_info.headline}</div>`;
       }
-      if (data.personal.website) {
-        previewHtml += `<div class="data-item"><strong>Website:</strong> <a href="${data.personal.website}" target="_blank" style="color: #fff; text-decoration: underline;">Portfolio</a></div>`;
+      if (data.personal_info.linkedin) {
+        previewHtml += `<div class="data-item"><strong>LinkedIn:</strong> <a href="${data.personal_info.linkedin}" target="_blank" style="color: #fff; text-decoration: underline;">Profile</a></div>`;
       }
 
       previewHtml += '</div></div>';
@@ -106,21 +109,21 @@ export class UiManager {
     }
 
     // Experience
-    if (data.experience && data.experience.length > 0) {
+    if (data.work_experience && data.work_experience.length > 0) {
       previewHtml += '<div class="data-group">';
       previewHtml += '<h4>💼 Work Experience</h4>';
       previewHtml += '<div class="data-items">';
 
-      data.experience.slice(0, 3).forEach((job, index) => {
+      data.work_experience.slice(0, 3).forEach((job, index) => {
         previewHtml += `<div class="data-item">`;
         previewHtml += `<strong>${job.title || 'Position'}</strong>`;
         if (job.company) previewHtml += ` at ${job.company}`;
-        if (job.dates) previewHtml += ` (${job.dates})`;
+        if (job.duration) previewHtml += ` (${job.duration})`;
         previewHtml += `</div>`;
       });
 
-      if (data.experience.length > 3) {
-        previewHtml += `<div class="data-item"><em>... and ${data.experience.length - 3} more</em></div>`;
+      if (data.work_experience.length > 3) {
+        previewHtml += `<div class="data-item"><em>... and ${data.work_experience.length - 3} more</em></div>`;
       }
 
       previewHtml += '</div></div>';
@@ -225,6 +228,19 @@ export class UiManager {
 
     previewHtml += '</div>';
     dataPreview.innerHTML = previewHtml;
+  }
+
+  showNoDataMessage() {
+    const noDataMessage = document.getElementById('no-data-message');
+    if (noDataMessage) noDataMessage.style.display = 'block';
+    if (this.elements.resumeDataDiv) this.elements.resumeDataDiv.style.display = 'block';
+    if (this.elements.dataPreview) this.elements.dataPreview.innerHTML = '';
+    console.log('⚠️ [UI] No resume data found.');
+  }
+
+  hideNoDataMessage() {
+    const noDataMessage = document.getElementById('no-data-message');
+    if (noDataMessage) noDataMessage.style.display = 'none';
   }
 
   hideResumeData() {

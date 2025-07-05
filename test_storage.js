@@ -22,3 +22,16 @@ const nameElement = document.querySelector('h1.text-heading-xlarge');
 const headlineElement = document.querySelector('.text-body-medium.break-words');
 console.log('Name element:', nameElement?.textContent?.trim());
 console.log('Headline element:', headlineElement?.textContent?.trim());
+
+// Test storage data
+chrome.storage.local.get(['resumeData', 'lastUpdated'], (result) => {
+  console.log('📦 Current storage data:', result);
+  if (result.resumeData) {
+    console.log('✅ Resume data found in storage');
+    console.log('Source:', result.resumeData.source);
+    console.log('Timestamp:', result.resumeData.timestamp);
+    console.log('Data preview:', JSON.stringify(result.resumeData.data).substring(0, 200) + '...');
+  } else {
+    console.log('❌ No resume data in storage');
+  }
+});

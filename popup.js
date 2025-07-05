@@ -24,22 +24,21 @@ class PopupController {
       // Load existing resume data and metadata
       this.resumeData = await this.storageManager.getResumeData();
       const storageInfo = await this.storageManager.getStorageInfo();
+      console.log('[Popup] Loaded resume data from storage:', this.resumeData);
+      console.log('[Popup] Storage info:', storageInfo);
 
       if (this.resumeData && storageInfo && storageInfo.hasData) {
         this.uiManager.showResumeData(this.resumeData);
+        this.uiManager.hideNoDataMessage && this.uiManager.hideNoDataMessage();
         this.uiManager.hideDataSourceSelection();
-
         // Show storage info
         const timeSince = this.getTimeSince(storageInfo.lastUpdated);
         this.uiManager.showStatus(
           `Using stored resume data from ${storageInfo.source} (${timeSince})`,
           'info'
         );
-      } else if (storageInfo && storageInfo.hasData) {
-        // Show storage info section without resume data loaded
-        this.showStorageInfo(storageInfo);
-        this.uiManager.showDataSourceSelection();
       } else {
+        this.uiManager.showNoDataMessage && this.uiManager.showNoDataMessage();
         this.uiManager.showDataSourceSelection();
       }
 
@@ -48,6 +47,27 @@ class PopupController {
 
       // Setup event listeners
       this.setupEventListeners();
+
+      // Wire up refresh button
+      const refreshBtn = document.getElementById('refreshDataBtn');
+      if (refreshBtn) {
+        refreshBtn.onclick = async () => {
+          console.log('[Popup] Refresh Data button clicked');
+          try {
+            const data = await this.storageManager.getResumeData();
+            console.log('[Popup] Refreshed data from storage:', data);
+            if (data) {
+              this.uiManager.showResumeData(data);
+              this.uiManager.hideNoDataMessage && this.uiManager.hideNoDataMessage();
+            } else {
+              this.uiManager.showNoDataMessage && this.uiManager.showNoDataMessage();
+            }
+          } catch (err) {
+            this.uiManager.showStatus('Failed to refresh data: ' + err.message, 'error');
+            console.error('[Popup] Failed to refresh data:', err);
+          }
+        };
+      }
 
       // Check content script readiness (don't fail initialization if this fails)
       try {
@@ -61,6 +81,7 @@ class PopupController {
     } catch (error) {
       console.error('❌ Failed to initialize popup:', error);
       this.uiManager.showStatus('Failed to initialize extension', 'error');
+      this.uiManager.showNoDataMessage && this.uiManager.showNoDataMessage();
     }
   }
 
@@ -679,6 +700,7 @@ class PopupController {
         this.resumeData = formattedData;
 
         // Update UI
+        console.log('🎨 Showing resume data in UI:', formattedData);
         this.uiManager.showResumeData(formattedData);
         this.uiManager.hideDataSourceSelection();
         this.hideStorageInfo();
