@@ -31,11 +31,38 @@ export class FormFiller {
         if (response.success) {
           resolve({
             success: true,
-            fieldsCount: response.fieldsCount,
-            message: response.message
+            fieldsCount: response.result?.fieldsCount || 0,
+            message: response.result?.message || 'Form filled successfully'
           });
         } else {
           reject(new Error(response.error || 'Unknown error'));
+        }
+      });
+    });
+  }
+
+  // Fill form using data stored in Chrome storage (cross-tab persistence)
+  async fillFormFromStorage() {
+    const currentTab = await this.getCurrentTab();
+
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(currentTab.id, {
+        action: 'fillForm'
+        // No data - content script will load from storage
+      }, (response) => {
+        if (!response) {
+          reject(new Error('Could not communicate with page. Make sure you\'re on a supported site.'));
+          return;
+        }
+
+        if (response.success) {
+          resolve({
+            success: true,
+            fieldsCount: response.result?.fieldsCount || 0,
+            message: response.result?.message || 'Form filled successfully'
+          });
+        } else {
+          reject(new Error(response.error || 'No stored resume data found. Please upload a resume or extract from LinkedIn first.'));
         }
       });
     });

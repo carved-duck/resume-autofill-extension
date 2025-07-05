@@ -590,6 +590,91 @@
       background: #005885 !important;
       border-color: #005885 !important;
     }
+
+    /* Storage Info Styles */
+    .storage-info {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 15px;
+      margin: 15px 0;
+      font-size: 13px;
+    }
+
+    .storage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .storage-icon {
+      font-size: 24px;
+    }
+
+    .storage-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .storage-details {
+      margin-bottom: 10px;
+    }
+
+    .storage-detail {
+      margin-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .detail-label {
+      font-weight: 600;
+      opacity: 0.9;
+    }
+
+    .detail-value {
+      opacity: 0.8;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .storage-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .use-stored-btn {
+      background: #28a745;
+      border-color: #28a745;
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .use-stored-btn:hover {
+      background: #218838;
+      border-color: #218838;
+    }
+
+    .replace-btn {
+      background: #dc3545;
+      border-color: #dc3545;
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .replace-btn:hover {
+      background: #c82333;
+      border-color: #c82333;
+    }
   </style>
 </head>
 <body>
@@ -600,6 +685,32 @@
     </div>
 
     <div id="status" class="status"></div>
+
+    <!-- Storage Info Section -->
+    <div id="storage-info" class="storage-info" style="display: none;">
+      <div class="storage-header">
+        <span class="storage-icon">💾</span>
+        <span class="storage-title">Stored Resume Data Available</span>
+      </div>
+      <div class="storage-details">
+        <div class="storage-detail">
+          <span class="detail-label">Source:</span>
+          <span id="storage-source" class="detail-value">Unknown</span>
+        </div>
+        <div class="storage-detail">
+          <span class="detail-label">Last Updated:</span>
+          <span id="storage-time" class="detail-value">Unknown</span>
+        </div>
+      </div>
+      <div class="storage-actions">
+        <button id="use-stored-data-btn" class="use-stored-btn">
+          ✅ Use Stored Data
+        </button>
+        <button id="replace-data-btn" class="replace-btn">
+          🔄 Replace with New Data
+        </button>
+      </div>
+    </div>
 
     <!-- Page Analysis Results -->
     <div id="page-analysis" class="page-analysis" style="display: none;"></div>

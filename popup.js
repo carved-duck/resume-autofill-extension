@@ -21,11 +21,24 @@ class PopupController {
 
   async initialize() {
     try {
-      // Load existing resume data
+      // Load existing resume data and metadata
       this.resumeData = await this.storageManager.getResumeData();
-      if (this.resumeData) {
+      const storageInfo = await this.storageManager.getStorageInfo();
+
+      if (this.resumeData && storageInfo.hasData) {
         this.uiManager.showResumeData(this.resumeData);
         this.uiManager.hideDataSourceSelection();
+
+        // Show storage info
+        const timeSince = this.getTimeSince(storageInfo.lastUpdated);
+        this.uiManager.showStatus(
+          `Using stored resume data from ${storageInfo.source} (${timeSince})`,
+          'info'
+        );
+      } else if (storageInfo.hasData) {
+        // Show storage info section without resume data loaded
+        this.showStorageInfo(storageInfo);
+        this.uiManager.showDataSourceSelection();
       } else {
         this.uiManager.showDataSourceSelection();
       }
@@ -43,6 +56,29 @@ class PopupController {
     } catch (error) {
       console.error('❌ Failed to initialize popup:', error);
       this.uiManager.showStatus('Failed to initialize extension', 'error');
+    }
+  }
+
+  // Helper method to calculate time since last update
+  getTimeSince(timestamp) {
+    if (!timestamp || timestamp === 'Never') return 'unknown time';
+
+    try {
+      const now = new Date();
+      const past = new Date(timestamp);
+      const diffMs = now - past;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMins / 60);
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffMins < 1) return 'just now';
+      if (diffMins < 60) return `${diffMins} minutes ago`;
+      if (diffHours < 24) return `${diffHours} hours ago`;
+      if (diffDays === 1) return 'yesterday';
+      if (diffDays < 7) return `${diffDays} days ago`;
+      return new Date(timestamp).toLocaleDateString();
+    } catch (error) {
+      return 'unknown time';
     }
   }
 
@@ -83,30 +119,13 @@ class PopupController {
     } catch (error) {
       console.warn('⚠️ Content script not ready:', error.message);
 
-      // Try to inject content script if it's not loaded
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab && tab.url && !tab.url.startsWith('chrome://')) {
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ['content/content_main.js']
-          });
-
-          // Wait a moment and try again
-          setTimeout(async () => {
-            try {
-              const info = await this.formFiller.getContentScriptInfo();
-              if (info.ready) {
-                this.uiManager.showStatus('Content script loaded successfully', 'success');
-              }
-            } catch (retryError) {
-              this.uiManager.showStatus('Please refresh the page to enable form filling', 'warning');
-            }
-          }, 1000);
-        }
-      } catch (injectionError) {
-        console.error('Failed to inject content script:', injectionError);
+      // Content scripts are loaded via manifest, so if they're not ready,
+      // it's likely the page needs to be refreshed or isn't supported
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url && !tab.url.startsWith('chrome://')) {
         this.uiManager.showStatus('Please refresh the page to enable form filling', 'warning');
+      } else {
+        this.uiManager.showStatus('Navigate to a supported job site to enable form filling', 'info');
       }
     }
   }
@@ -209,6 +228,21 @@ class PopupController {
     this.uiManager.setTryClickCallback(() => {
       return this.handleTryIntelligentButtons();
     });
+
+    // Storage action buttons
+    const useStoredDataBtn = document.getElementById('use-stored-data-btn');
+    if (useStoredDataBtn) {
+      useStoredDataBtn.addEventListener('click', async () => {
+        await this.handleUseStoredData();
+      });
+    }
+
+    const replaceDataBtn = document.getElementById('replace-data-btn');
+    if (replaceDataBtn) {
+      replaceDataBtn.addEventListener('click', () => {
+        this.handleReplaceData();
+      });
+    }
   }
 
   showDataSourceSelection() {
@@ -289,14 +323,15 @@ class PopupController {
       // Upload and parse resume
       const parsedData = await this.apiClient.uploadResume(this.currentFile);
 
-      // Save to storage
-      await this.storageManager.saveResumeData(parsedData);
+      // Save to storage with source metadata
+      await this.storageManager.saveResumeData(parsedData, 'pdf');
       this.resumeData = parsedData;
 
       // Update UI
       this.uiManager.showResumeData(parsedData);
       this.uiManager.hideDataSourceSelection();
-      this.uiManager.showStatus('Resume parsed successfully! 🎉', 'success');
+      this.hideStorageInfo();
+      this.uiManager.showStatus('Resume parsed and saved successfully! 🎉', 'success');
 
       // Reset file handler
       this.fileHandler.reset();
@@ -314,6 +349,7 @@ class PopupController {
       await this.storageManager.clearResumeData();
       this.resumeData = null;
       this.uiManager.hideResumeData();
+      this.hideStorageInfo();
       this.showDataSourceSelection();
       this.uiManager.showStatus('Resume data cleared successfully!', 'success');
     } catch (error) {
@@ -322,14 +358,21 @@ class PopupController {
   }
 
   async handleAutoFill() {
-    if (!this.resumeData) {
-      this.uiManager.showStatus('No resume data found. Please upload a resume first.', 'warning');
-      return;
-    }
-
     try {
       this.uiManager.showStatus('Intelligently filling form...', 'info');
-      const result = await this.formFiller.fillForm(this.resumeData);
+
+      let result;
+      if (this.resumeData) {
+        // Use in-memory data
+        result = await this.formFiller.fillForm(this.resumeData);
+      } else {
+        // Load from storage and fill
+        result = await this.formFiller.fillFormFromStorage();
+
+        // Also load into memory for future use
+        this.resumeData = await this.storageManager.getResumeData();
+      }
+
       this.uiManager.showStatus(result.message, 'success');
     } catch (error) {
       this.uiManager.showStatus('Auto-fill failed: ' + error.message, 'error');
@@ -420,9 +463,15 @@ class PopupController {
   }
 
   async handleCopyPasteHelper() {
+    // Try to load resume data if not available in memory
     if (!this.resumeData) {
-      this.uiManager.showStatus('No resume data found. Please upload a resume first.', 'warning');
-      return;
+      console.log('📂 No resume data in memory, attempting to load from storage...');
+      this.resumeData = await this.storageManager.getResumeData();
+
+      if (!this.resumeData) {
+        this.uiManager.showStatus('No resume data found. Please upload a resume or extract from LinkedIn first.', 'warning');
+        return;
+      }
     }
 
     try {
@@ -470,9 +519,15 @@ class PopupController {
 
   // Quick action for immediate form filling after analysis
   async quickFillAfterAnalysis() {
+    // Try to load resume data if not available in memory
     if (!this.resumeData) {
-      this.uiManager.showStatus('No resume data available', 'warning');
-      return;
+      console.log('📂 No resume data in memory, attempting to load from storage...');
+      this.resumeData = await this.storageManager.getResumeData();
+
+      if (!this.resumeData) {
+        this.uiManager.showStatus('No resume data found. Please upload a resume or extract from LinkedIn first.', 'warning');
+        return;
+      }
     }
 
     try {
@@ -519,14 +574,15 @@ class PopupController {
       if (results && results[0] && results[0].result) {
         const linkedInData = results[0].result;
 
-        // Save the extracted data
-        await this.storageManager.saveResumeData(linkedInData);
+        // Save the extracted data with source metadata
+        await this.storageManager.saveResumeData(linkedInData, 'linkedin');
         this.resumeData = linkedInData;
 
         // Update UI
         this.uiManager.showResumeData(linkedInData);
         this.uiManager.hideDataSourceSelection();
-        this.uiManager.showStatus('✅ LinkedIn profile data extracted successfully! 🎉', 'success');
+        this.hideStorageInfo();
+        this.uiManager.showStatus('✅ LinkedIn profile data extracted and saved! 🎉', 'success');
 
         console.log('✅ LinkedIn data extracted:', linkedInData);
       } else {
@@ -539,6 +595,57 @@ class PopupController {
     } finally {
       this.uiManager.showLoading(false);
     }
+  }
+
+  showStorageInfo(storageInfo) {
+    const storageInfoDiv = document.getElementById('storage-info');
+    const storageSource = document.getElementById('storage-source');
+    const storageTime = document.getElementById('storage-time');
+
+    if (storageInfoDiv && storageSource && storageTime) {
+      storageSource.textContent = storageInfo.source.charAt(0).toUpperCase() + storageInfo.source.slice(1);
+      storageTime.textContent = this.getTimeSince(storageInfo.lastUpdated);
+      storageInfoDiv.style.display = 'block';
+    }
+  }
+
+  hideStorageInfo() {
+    const storageInfoDiv = document.getElementById('storage-info');
+    if (storageInfoDiv) {
+      storageInfoDiv.style.display = 'none';
+    }
+  }
+
+  async handleUseStoredData() {
+    try {
+      // Load data from storage
+      this.resumeData = await this.storageManager.getResumeData();
+      const metadata = await this.storageManager.getResumeMetadata();
+
+      if (this.resumeData) {
+        // Hide storage info and show resume data
+        this.hideStorageInfo();
+        this.uiManager.showResumeData(this.resumeData);
+        this.uiManager.hideDataSourceSelection();
+
+        const timeSince = this.getTimeSince(metadata?.timestamp);
+        this.uiManager.showStatus(
+          `Using stored resume data from ${metadata?.source || 'unknown'} (${timeSince})`,
+          'success'
+        );
+      } else {
+        throw new Error('No stored data found');
+      }
+    } catch (error) {
+      this.uiManager.showStatus('Failed to load stored data: ' + error.message, 'error');
+    }
+  }
+
+  handleReplaceData() {
+    // Hide storage info and show data source selection
+    this.hideStorageInfo();
+    this.showDataSourceSelection();
+    this.uiManager.showStatus('Choose a new data source to replace stored data', 'info');
   }
 }
 
