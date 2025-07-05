@@ -9,18 +9,17 @@ export class StorageManager {
     console.log('💾 Saving resume data:', data);
 
     const timestamp = new Date().toISOString();
-    const metadata = {
+    const storageData = {
+      data: data,
       source: source, // 'linkedin', 'pdf', 'manual'
       timestamp: timestamp,
-      version: '1.0',
-      dataSize: JSON.stringify(data).length
+      version: '1.0'
     };
 
     return new Promise((resolve, reject) => {
       // Save both data and metadata
       chrome.storage.local.set({
-        [this.storageKey]: data,
-        [this.metadataKey]: metadata,
+        [this.storageKey]: storageData,
         'lastUpdated': timestamp
       }, function() {
         if (chrome.runtime.lastError) {
@@ -37,23 +36,23 @@ export class StorageManager {
   async getResumeData() {
     console.log('📖 Loading resume data...');
     return new Promise((resolve, reject) => {
-      chrome.storage.local.get([this.storageKey, this.metadataKey], function(result) {
+      chrome.storage.local.get([this.storageKey, 'lastUpdated'], function(result) {
         if (chrome.runtime.lastError) {
           console.error('❌ Failed to load resume data:', chrome.runtime.lastError);
           reject(chrome.runtime.lastError);
         } else {
-          const data = result[this.storageKey] || null;
-          const metadata = result[this.metadataKey] || null;
+          const storageData = result[this.storageKey] || null;
 
-          if (data && metadata) {
-            console.log(`📋 Loaded resume data from ${metadata.source} (updated: ${metadata.timestamp})`);
-          } else if (data) {
+          if (storageData && storageData.data) {
+            console.log(`📋 Loaded resume data from ${storageData.source} (updated: ${storageData.timestamp})`);
+            resolve(storageData.data); // Return just the data part
+          } else if (storageData) {
             console.log('📋 Loaded resume data (no metadata available)');
+            resolve(storageData); // Legacy support
           } else {
             console.log('📋 No resume data found');
+            resolve(null);
           }
-
-          resolve(data);
         }
       });
     });
@@ -61,15 +60,15 @@ export class StorageManager {
 
   async getResumeMetadata() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.get([this.metadataKey, 'lastUpdated'], function(result) {
+      chrome.storage.local.get([this.storageKey, 'lastUpdated'], function(result) {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
-          const metadata = result[this.metadataKey] || null;
-          if (metadata) {
-            metadata.lastUpdated = result.lastUpdated || metadata.timestamp;
+          const storageData = result[this.storageKey] || null;
+          if (storageData) {
+            storageData.lastUpdated = result.lastUpdated || storageData.timestamp;
           }
-          resolve(metadata);
+          resolve(storageData);
         }
       });
     });
@@ -77,11 +76,11 @@ export class StorageManager {
 
   async clearResumeData() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.remove([this.storageKey, this.metadataKey, 'lastUpdated'], function() {
+      chrome.storage.local.remove([this.storageKey, 'lastUpdated'], function() {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
-          console.log('🗑️ Resume data and metadata cleared');
+          console.log('🗑️ Resume data cleared');
           resolve();
         }
       });
@@ -95,20 +94,20 @@ export class StorageManager {
 
   async getStorageInfo() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.get([this.storageKey, this.metadataKey, 'lastUpdated'], function(result) {
+      chrome.storage.local.get([this.storageKey, 'lastUpdated'], function(result) {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
-          const hasData = !!result[this.storageKey];
-          const metadata = result[this.metadataKey] || {};
+          const storageData = result[this.storageKey] || null;
+          const hasData = !!storageData && !!storageData.data;
 
           resolve({
             hasData: hasData,
-            source: metadata.source || 'Unknown',
-            timestamp: metadata.timestamp || 'Unknown',
-            lastUpdated: result.lastUpdated || metadata.timestamp || 'Never',
-            dataSize: metadata.dataSize || 0,
-            version: metadata.version || '1.0'
+            source: storageData?.source || 'Unknown',
+            timestamp: storageData?.timestamp || 'Unknown',
+            lastUpdated: result.lastUpdated || storageData?.timestamp || 'Never',
+            dataSize: storageData?.data ? JSON.stringify(storageData.data).length : 0,
+            version: storageData?.version || '1.0'
           });
         }
       });

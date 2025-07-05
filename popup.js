@@ -151,6 +151,12 @@ class PopupController {
         return;
       }
 
+      // Check if we're on a chrome:// or chrome-extension:// page
+      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+        this.uiManager.showStatus('Navigate to a job site to enable form filling', 'info');
+        return;
+      }
+
       // Check if we're on a supported site
       const supportedSites = [
         'linkedin.com',
@@ -172,12 +178,6 @@ class PopupController {
         return;
       }
 
-      // Check if we're on a chrome:// or chrome-extension:// page
-      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-        this.uiManager.showStatus('Navigate to a job site to enable form filling', 'info');
-        return;
-      }
-
       // Try to communicate with content script
       try {
         const info = await this.formFiller.getContentScriptInfo();
@@ -188,9 +188,12 @@ class PopupController {
       } catch (error) {
         console.warn('⚠️ Content script not ready:', error.message);
 
-        // Content scripts are loaded via manifest, so if they're not ready,
-        // it's likely the page needs to be refreshed or isn't supported
-        this.uiManager.showStatus('Please refresh the page to enable form filling', 'warning');
+        // Check if we're on a supported site but content script isn't responding
+        if (isSupportedSite) {
+          this.uiManager.showStatus('Please refresh the page to enable form filling', 'warning');
+        } else {
+          this.uiManager.showStatus('Navigate to a supported job site to enable form filling', 'info');
+        }
       }
     } catch (error) {
       console.error('❌ Failed to check content script status:', error);
@@ -650,17 +653,38 @@ class PopupController {
       if (results && results[0] && results[0].result) {
         const linkedInData = results[0].result;
 
-        // Save the extracted data with source metadata
-        await this.storageManager.saveResumeData(linkedInData, 'linkedin');
-        this.resumeData = linkedInData;
+        // Convert LinkedIn data to the expected format
+        const formattedData = {
+          personal_info: {
+            full_name: linkedInData.personal?.full_name || '',
+            first_name: linkedInData.personal?.first_name || '',
+            last_name: linkedInData.personal?.last_name || '',
+            email: linkedInData.personal?.email || '',
+            phone: linkedInData.personal?.phone || '',
+            location: linkedInData.personal?.location || '',
+            headline: linkedInData.personal?.headline || '',
+            linkedin: linkedInData.personal?.linkedin || ''
+          },
+          summary: linkedInData.summary || '',
+          work_experience: linkedInData.experience || [],
+          education: linkedInData.education || [],
+          skills: linkedInData.skills || [],
+          projects: linkedInData.projects || [],
+          languages: linkedInData.languages || [],
+          certifications: linkedInData.certifications || []
+        };
+
+        // Save the formatted data with source metadata
+        await this.storageManager.saveResumeData(formattedData, 'linkedin');
+        this.resumeData = formattedData;
 
         // Update UI
-        this.uiManager.showResumeData(linkedInData);
+        this.uiManager.showResumeData(formattedData);
         this.uiManager.hideDataSourceSelection();
         this.hideStorageInfo();
         this.uiManager.showStatus('✅ LinkedIn profile data extracted and saved! 🎉', 'success');
 
-        console.log('✅ LinkedIn data extracted:', linkedInData);
+        console.log('✅ LinkedIn data extracted and formatted:', formattedData);
       } else {
         throw new Error('No data extracted from LinkedIn');
       }
@@ -723,6 +747,8 @@ class PopupController {
     this.showDataSourceSelection();
     this.uiManager.showStatus('Choose a new data source to replace stored data', 'info');
   }
+
+
 }
 
 // Initialize popup controller when DOM is ready

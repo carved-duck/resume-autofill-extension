@@ -48,8 +48,8 @@
         "https://*.gaijinpot.com/*"
       ],
       "js": [
-        "content/selectors.js",
         "content/utils.js",
+        "content/selectors.js",
         "content/formFiller.js",
         "content/pageAnalyzer.js",
         "content/content_main.js"

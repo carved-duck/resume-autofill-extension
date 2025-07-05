@@ -14,8 +14,24 @@ export class FormFiller {
 
     const currentTab = await this.getCurrentTab();
 
-    if (!isSupportedSite(currentTab.url)) {
-      throw new Error('This site is not yet supported for auto-fill');
+    // Check if we're on a supported site
+    const supportedSites = [
+      'linkedin.com',
+      'indeed.com',
+      'glassdoor.com',
+      'monster.com',
+      'ziprecruiter.com',
+      'workday.com',
+      'greenhouse.io',
+      'lever.co',
+      'wantedly.com',
+      'gaijinpot.com'
+    ];
+
+    const isSupportedSite = supportedSites.some(site => currentTab.url.includes(site));
+
+    if (!isSupportedSite) {
+      throw new Error('This site is not yet supported for auto-fill. Please navigate to a supported job site.');
     }
 
     return new Promise((resolve, reject) => {
@@ -32,12 +48,12 @@ export class FormFiller {
 
         if (chrome.runtime.lastError) {
           console.error('❌ Content script communication failed:', chrome.runtime.lastError.message);
-          reject(new Error('Could not communicate with page. Make sure you\'re on a supported site and refresh the page.'));
+          reject(new Error('Could not communicate with page. Please refresh the page and try again.'));
           return;
         }
 
         if (!response) {
-          reject(new Error('Could not communicate with page. Make sure you\'re on a supported site.'));
+          reject(new Error('Could not communicate with page. Please refresh the page and try again.'));
           return;
         }
 
@@ -58,6 +74,26 @@ export class FormFiller {
   async fillFormFromStorage() {
     const currentTab = await this.getCurrentTab();
 
+    // Check if we're on a supported site
+    const supportedSites = [
+      'linkedin.com',
+      'indeed.com',
+      'glassdoor.com',
+      'monster.com',
+      'ziprecruiter.com',
+      'workday.com',
+      'greenhouse.io',
+      'lever.co',
+      'wantedly.com',
+      'gaijinpot.com'
+    ];
+
+    const isSupportedSite = supportedSites.some(site => currentTab.url.includes(site));
+
+    if (!isSupportedSite) {
+      throw new Error('This site is not yet supported for auto-fill. Please navigate to a supported job site.');
+    }
+
     return new Promise((resolve, reject) => {
       // Set a timeout to prevent hanging
       const timeout = setTimeout(() => {
@@ -72,12 +108,12 @@ export class FormFiller {
 
         if (chrome.runtime.lastError) {
           console.error('❌ Content script communication failed:', chrome.runtime.lastError.message);
-          reject(new Error('Could not communicate with page. Make sure you\'re on a supported site and refresh the page.'));
+          reject(new Error('Could not communicate with page. Please refresh the page and try again.'));
           return;
         }
 
         if (!response) {
-          reject(new Error('Could not communicate with page. Make sure you\'re on a supported site.'));
+          reject(new Error('Could not communicate with page. Please refresh the page and try again.'));
           return;
         }
 
@@ -247,6 +283,26 @@ export class FormFiller {
   async getContentScriptInfo() {
     try {
       const currentTab = await this.getCurrentTab();
+
+      // Check if we're on a supported site first
+      const supportedSites = [
+        'linkedin.com',
+        'indeed.com',
+        'glassdoor.com',
+        'monster.com',
+        'ziprecruiter.com',
+        'workday.com',
+        'greenhouse.io',
+        'lever.co',
+        'wantedly.com',
+        'gaijinpot.com'
+      ];
+
+      const isSupportedSite = supportedSites.some(site => currentTab.url.includes(site));
+
+      if (!isSupportedSite) {
+        throw new Error('Not on a supported job site');
+      }
 
       return new Promise((resolve, reject) => {
         // Set a timeout to prevent hanging

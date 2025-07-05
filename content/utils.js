@@ -176,6 +176,12 @@ if (window.resumeAutoFillUtilsLoaded) {
             version: '1.0'
           };
 
+          console.log('💾 Attempting to save resume data:', {
+            source: source,
+            dataSize: JSON.stringify(data).length,
+            timestamp: timestamp
+          });
+
           // Save to Chrome storage (persists across tabs and sessions)
           chrome.storage.local.set({
             'resumeData': storageData,
@@ -185,6 +191,7 @@ if (window.resumeAutoFillUtilsLoaded) {
               console.error('❌ Chrome storage failed:', chrome.runtime.lastError);
 
               // Try background script as fallback
+              console.log('🔄 Trying background script fallback...');
               chrome.runtime.sendMessage({
                 action: 'saveResumeData',
                 data: storageData
@@ -207,6 +214,15 @@ if (window.resumeAutoFillUtilsLoaded) {
             } else {
               console.log(`💾 Resume data saved to Chrome storage (source: ${source})`);
 
+              // Verify the save worked by reading it back
+              chrome.storage.local.get(['resumeData'], (result) => {
+                if (result.resumeData) {
+                  console.log('✅ Storage verification successful - data is saved');
+                } else {
+                  console.warn('⚠️ Storage verification failed - data not found after save');
+                }
+              });
+
               // Also save to localStorage as backup
               try {
                 localStorage.setItem('resumeData', JSON.stringify(storageData));
@@ -228,15 +244,21 @@ if (window.resumeAutoFillUtilsLoaded) {
     static loadResumeData() {
       return new Promise((resolve, reject) => {
         try {
+          console.log('📂 Attempting to load resume data from storage...');
+
           // Try Chrome storage first
           chrome.storage.local.get(['resumeData', 'lastUpdated'], (result) => {
+            console.log('📂 Chrome storage get result:', result);
+
             if (chrome.runtime.lastError) {
               console.error('❌ Chrome storage failed:', chrome.runtime.lastError);
 
               // Try background script as fallback
+              console.log('🔄 Trying background script fallback for loading...');
               chrome.runtime.sendMessage({
                 action: 'loadResumeData'
               }, (response) => {
+                console.log('📂 Background script response:', response);
                 if (response && response.success && response.data.resumeData) {
                   console.log(`📂 Resume data loaded via background script (source: ${response.data.resumeData.source})`);
                   resolve(response.data.resumeData);
@@ -244,12 +266,13 @@ if (window.resumeAutoFillUtilsLoaded) {
                   // Fallback to localStorage
                   try {
                     const localData = localStorage.getItem('resumeData');
+                    console.log('📂 localStorage data:', localData);
                     if (localData) {
                       const parsed = JSON.parse(localData);
                       console.log(`📂 Fallback: Resume data loaded from localStorage (source: ${parsed.source})`);
                       resolve(parsed);
                     } else {
-                      console.log('📂 No resume data found in storage');
+                      console.log('📂 No resume data found in any storage');
                       resolve(null);
                     }
                   } catch (fallbackError) {
@@ -263,19 +286,21 @@ if (window.resumeAutoFillUtilsLoaded) {
                 console.log(`📂 Resume data loaded from Chrome storage (source: ${result.resumeData.source}, updated: ${result.lastUpdated})`);
                 resolve(result.resumeData);
               } else {
+                console.log('📂 No data in Chrome storage, trying localStorage...');
                 // Fallback to localStorage
                 try {
                   const localData = localStorage.getItem('resumeData');
+                  console.log('📂 localStorage data:', localData);
                   if (localData) {
                     const parsed = JSON.parse(localData);
                     console.log(`📂 Fallback: Resume data loaded from localStorage (source: ${parsed.source})`);
                     resolve(parsed);
                   } else {
-                    console.log('📂 No resume data found in storage');
+                    console.log('📂 No resume data found in any storage');
                     resolve(null);
                   }
                 } catch (fallbackError) {
-                  console.log('📂 No resume data found in storage');
+                  console.log('📂 No resume data found in any storage');
                   resolve(null);
                 }
               }
@@ -387,6 +412,41 @@ if (window.resumeAutoFillUtilsLoaded) {
         }
       });
     }
+
+    // Test function to manually verify storage
+    static testStorage() {
+      console.log('🧪 Testing storage functionality...');
+
+      const testData = {
+        data: {
+          personal_info: {
+            full_name: "Test User",
+            email: "test@example.com"
+          }
+        },
+        source: 'test',
+        timestamp: new Date().toISOString(),
+        version: '1.0'
+      };
+
+      // Test save
+      this.saveResumeData(testData.data, 'test').then(() => {
+        console.log('✅ Test save successful');
+
+        // Test load
+        this.loadResumeData().then((loadedData) => {
+          if (loadedData && loadedData.data) {
+            console.log('✅ Test load successful:', loadedData.source);
+          } else {
+            console.log('❌ Test load failed - no data found');
+          }
+        }).catch((error) => {
+          console.error('❌ Test load error:', error);
+        });
+      }).catch((error) => {
+        console.error('❌ Test save error:', error);
+      });
+    }
   }
 
   class DebugHelper {
@@ -449,53 +509,75 @@ if (window.resumeAutoFillUtilsLoaded) {
 
   class EventManager {
     static setupMessageListeners() {
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        console.log('📨 Content script received message:', message);
+      // Only set up listeners if not already set
+      if (!window.resumeAutoFillEventListenersSet) {
+        window.resumeAutoFillEventListenersSet = true;
 
-        switch (message.action) {
-          case 'showNotification':
-            NotificationManager.showNotification(message.text, message.type);
-            sendResponse({ success: true });
-            break;
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+          console.log('📨 Content script received message:', message);
 
-          case 'validatePage':
-            const validation = DataValidator.validatePageForFilling();
-            sendResponse({ success: true, validation });
-            break;
+          switch (message.action) {
+            case 'ping':
+              // Simple ping to check if content script is ready
+              sendResponse({
+                success: true,
+                message: 'Content script is active',
+                features: ['fillForm', 'extractLinkedIn', 'analyzePageStructure'],
+                ready: true
+              });
+              break;
 
-          case 'debugPage':
-            DebugHelper.logPageInfo();
-            sendResponse({ success: true });
-            break;
+            case 'showNotification':
+              NotificationManager.showNotification(message.text, message.type);
+              sendResponse({ success: true });
+              break;
 
-          case 'highlightFields':
-            DebugHelper.highlightFields(message.fieldType);
-            sendResponse({ success: true });
-            break;
+            case 'validatePage':
+              const validation = DataValidator.validatePageForFilling();
+              sendResponse({ success: true, validation });
+              break;
 
-          case 'fillForm':
-            if (window.formFiller) {
-              const result = window.formFiller.fillFormWithResumeData(message.data);
-              sendResponse({ success: true, result });
-            } else {
-              sendResponse({ success: false, error: 'Form filler not initialized' });
-            }
-            break;
+            case 'debugPage':
+              DebugHelper.logPageInfo();
+              sendResponse({ success: true });
+              break;
 
-          default:
-            console.log('❓ Unknown message action:', message.action);
-            sendResponse({ success: false, error: 'Unknown action' });
-        }
+            case 'highlightFields':
+              DebugHelper.highlightFields(message.fieldType);
+              sendResponse({ success: true });
+              break;
 
-        return true; // Indicate async response
-      });
+            case 'fillForm':
+              if (window.formFiller) {
+                const result = window.formFiller.fillFormWithResumeData(message.data);
+                sendResponse({ success: true, result });
+              } else {
+                sendResponse({ success: false, error: 'Form filler not initialized' });
+              }
+              break;
+
+            case 'storageChanged':
+              // Handle storage change notifications (can be ignored for now)
+              console.log('📦 Storage changed:', message.changes);
+              sendResponse({ success: true });
+              break;
+
+            default:
+              // Let other modules handle their specific messages
+              console.log('📨 Message not handled by EventManager, passing to other modules');
+              return false; // Let other listeners handle it
+          }
+
+          return true; // Indicate async response
+        });
+      }
     }
   }
 
-  // Export to global scope
+    // Export to global scope
   window.NotificationManager = NotificationManager;
   window.DataValidator = DataValidator;
-  window.StorageManager = StorageManager;
+  window.ResumeStorageManager = StorageManager;
   window.DebugHelper = DebugHelper;
   window.EventManager = EventManager;
 
