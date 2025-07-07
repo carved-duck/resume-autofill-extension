@@ -21,7 +21,7 @@ export class StorageManager {
       chrome.storage.local.set({
         [this.storageKey]: storageData,
         'lastUpdated': timestamp
-      }, function() {
+      }, () => {
         if (chrome.runtime.lastError) {
           console.error('❌ Failed to save resume data:', chrome.runtime.lastError);
           reject(chrome.runtime.lastError);
@@ -36,7 +36,7 @@ export class StorageManager {
   async getResumeData() {
     console.log('📖 Loading resume data...');
     return new Promise((resolve, reject) => {
-      chrome.storage.local.get([this.storageKey, 'lastUpdated'], function(result) {
+      chrome.storage.local.get([this.storageKey, 'lastUpdated'], (result) => {
         if (chrome.runtime.lastError) {
           console.error('❌ Failed to load resume data:', chrome.runtime.lastError);
           reject(chrome.runtime.lastError);
@@ -60,7 +60,7 @@ export class StorageManager {
 
   async getResumeMetadata() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.get([this.storageKey, 'lastUpdated'], function(result) {
+      chrome.storage.local.get([this.storageKey, 'lastUpdated'], (result) => {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
@@ -76,7 +76,7 @@ export class StorageManager {
 
   async clearResumeData() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.remove([this.storageKey, 'lastUpdated'], function() {
+      chrome.storage.local.remove([this.storageKey, 'lastUpdated'], () => {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
@@ -94,7 +94,7 @@ export class StorageManager {
 
   async getStorageInfo() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.get([this.storageKey, 'lastUpdated'], function(result) {
+      chrome.storage.local.get([this.storageKey, 'lastUpdated'], (result) => {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
