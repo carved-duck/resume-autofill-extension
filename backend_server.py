@@ -29,16 +29,29 @@ def allowed_file(filename):
 
 def extract_text_from_pdf(file_path):
     """Extract text from PDF file"""
+    print(f"🔍 [PDF] Starting text extraction from: {file_path}")
     text = ""
     try:
         with open(file_path, 'rb') as file:
+            print(f"🔍 [PDF] Opening PDF file...")
             pdf_reader = PyPDF2.PdfReader(file)
-            for page in pdf_reader.pages:
-                text += page.extract_text() + "\n"
+            print(f"🔍 [PDF] PDF has {len(pdf_reader.pages)} pages")
+
+            for i, page in enumerate(pdf_reader.pages):
+                print(f"🔍 [PDF] Extracting text from page {i+1}...")
+                page_text = page.extract_text()
+                print(f"🔍 [PDF] Page {i+1} text length: {len(page_text)} characters")
+                text += page_text + "\n"
+
+        print(f"✅ [PDF] Text extraction completed, total length: {len(text)} characters")
+        return text
     except Exception as e:
-        print(f"Error reading PDF: {e}")
+        print(f"❌ [PDF] Error reading PDF: {e}")
+        print(f"❌ [PDF] Exception type: {type(e).__name__}")
+        import traceback
+        print(f"❌ [PDF] Full traceback:")
+        traceback.print_exc()
         return None
-    return text
 
 def parse_resume_text(text):
     """Parse resume text and extract structured data"""
@@ -144,47 +157,88 @@ def parse_resume_text(text):
 def parse_resume():
     """Parse uploaded resume PDF"""
 
+    print(f"🔍 [API] Received resume upload request")
+    print(f"🔍 [API] Request files: {list(request.files.keys())}")
+    print(f"🔍 [API] Request headers: {dict(request.headers)}")
+
     if 'resume_file' not in request.files:
+        print(f"❌ [API] No resume_file in request.files")
         return jsonify({
             'success': False,
             'error': 'No file uploaded'
         }), 400
 
     file = request.files['resume_file']
+    print(f"🔍 [API] File received: {file.filename}, size: {file.content_length if hasattr(file, 'content_length') else 'unknown'}")
 
     if file.filename == '':
+        print(f"❌ [API] Empty filename")
         return jsonify({
             'success': False,
             'error': 'No file selected'
         }), 400
 
     if not allowed_file(file.filename):
+        print(f"❌ [API] Invalid file type: {file.filename}")
         return jsonify({
             'success': False,
             'error': 'Only PDF files are allowed'
         }), 400
 
+    file_path = None
     try:
+        print(f"🔍 [API] Starting PDF processing...")
+
         # Save uploaded file temporarily
-        filename = secure_filename(file.filename)
+        filename = secure_filename(file.filename or "unknown.pdf")
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{filename}")
+        print(f"🔍 [API] Saving file to: {file_path}")
+
         file.save(file_path)
+        print(f"✅ [API] File saved successfully")
+
+        # Check if file exists and has content
+        if not os.path.exists(file_path):
+            print(f"❌ [API] File was not saved properly")
+            return jsonify({
+                'success': False,
+                'error': 'Failed to save uploaded file'
+            }), 500
+
+        file_size = os.path.getsize(file_path)
+        print(f"🔍 [API] Saved file size: {file_size} bytes")
 
         # Extract text from PDF
+        print(f"🔍 [API] Extracting text from PDF...")
         text = extract_text_from_pdf(file_path)
 
-        # Clean up temp file
-        os.remove(file_path)
-
-        if not text:
+        if text:
+            print(f"✅ [API] Text extraction successful, length: {len(text)} characters")
+            print(f"🔍 [API] First 200 chars: {text[:200]}...")
+        else:
+            print(f"❌ [API] Text extraction failed - no text extracted")
             return jsonify({
                 'success': False,
                 'error': 'Could not extract text from PDF'
             }), 400
 
         # Parse the extracted text
+        print(f"🔍 [API] Parsing extracted text...")
         parsed_data = parse_resume_text(text)
+        print(f"✅ [API] Parsing successful")
+        print(f"🔍 [API] Parsed data keys: {list(parsed_data.keys())}")
+        for key, value in parsed_data.items():
+            if isinstance(value, list):
+                print(f"🔍 [API] {key}: {len(value)} items")
+            else:
+                print(f"🔍 [API] {key}: {value}")
 
+        # Clean up temp file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"✅ [API] Temporary file cleaned up")
+
+        print(f"✅ [API] Processing completed successfully")
         return jsonify({
             'success': True,
             'data': parsed_data,
@@ -192,9 +246,19 @@ def parse_resume():
         })
 
     except Exception as e:
+        print(f"❌ [API] Exception occurred: {str(e)}")
+        print(f"❌ [API] Exception type: {type(e).__name__}")
+        import traceback
+        print(f"❌ [API] Full traceback:")
+        traceback.print_exc()
+
         # Clean up temp file if it exists
-        if 'file_path' in locals() and os.path.exists(file_path):
-            os.remove(file_path)
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                print(f"✅ [API] Cleaned up temp file after error")
+            except Exception as cleanup_error:
+                print(f"⚠️ [API] Failed to cleanup temp file: {cleanup_error}")
 
         return jsonify({
             'success': False,

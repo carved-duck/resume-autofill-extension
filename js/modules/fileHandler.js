@@ -4,6 +4,7 @@ export class FileHandler {
     this.uploadSection = uploadSection;
     this.fileInput = fileInput;
     this.onFileSelected = onFileSelected;
+    this.isFileDialogOpen = false; // Add flag to prevent multiple dialogs
 
     // Bind methods to preserve 'this' context
     this.preventDefaults = this.preventDefaults.bind(this);
@@ -28,22 +29,22 @@ export class FileHandler {
 
     // Prevent default drag behaviors on the upload section and document
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-      this.uploadSection.addEventListener(eventName, this.preventDefaults, false);
-      document.body.addEventListener(eventName, this.preventDefaults, false);
+      this.uploadSection.addEventListener(eventName, (e) => this.preventDefaults(e), false);
+      document.body.addEventListener(eventName, (e) => this.preventDefaults(e), false);
     });
 
     // Highlight drop area when item is dragged over it
     ['dragenter', 'dragover'].forEach(eventName => {
-      this.uploadSection.addEventListener(eventName, this.highlight, false);
+      this.uploadSection.addEventListener(eventName, (e) => this.highlight(e), false);
     });
 
     // Remove highlight when drag leaves or file is dropped
     ['dragleave', 'drop'].forEach(eventName => {
-      this.uploadSection.addEventListener(eventName, this.unhighlight, false);
+      this.uploadSection.addEventListener(eventName, (e) => this.unhighlight(e), false);
     });
 
     // Handle dropped files
-    this.uploadSection.addEventListener('drop', this.handleDrop, false);
+    this.uploadSection.addEventListener('drop', (e) => this.handleDrop(e), false);
 
     console.log('🎯 Drag and drop events set up');
   }
@@ -54,7 +55,22 @@ export class FileHandler {
       return;
     }
 
-    this.fileInput.addEventListener('change', this.handleFileInput, false);
+    console.log('🔍 Setting up file input:', this.fileInput);
+    console.log('🔍 File input type before:', this.fileInput.type);
+    console.log('🔍 File input accept before:', this.fileInput.accept);
+
+    // Make sure the file input is properly configured
+    this.fileInput.type = 'file';
+    this.fileInput.accept = '.pdf';
+    this.fileInput.style.display = 'none';
+
+    console.log('🔍 File input type after:', this.fileInput.type);
+    console.log('🔍 File input accept after:', this.fileInput.accept);
+
+    this.fileInput.addEventListener('change', (e) => {
+      console.log('🎯 File input change event fired!');
+      this.handleFileInput(e);
+    }, false);
     console.log('📎 File input change event set up');
   }
 
@@ -70,12 +86,12 @@ export class FileHandler {
     }
 
     // Handle click on upload section to open file dialog
-    this.uploadSection.addEventListener('click', this.handleUploadClick, false);
+    this.uploadSection.addEventListener('click', (e) => this.handleUploadClick(e), false);
 
     // Also handle direct clicks on the upload section text
     const uploadText = this.uploadSection.querySelector('.upload-text');
     if (uploadText) {
-      uploadText.addEventListener('click', this.handleUploadClick, false);
+      uploadText.addEventListener('click', (e) => this.handleUploadClick(e), false);
     }
 
     console.log('👆 Upload section click handler set up');
@@ -125,7 +141,8 @@ export class FileHandler {
 
       handleUploadClick(e) {
     // Don't trigger file dialog if clicking on the upload button itself
-    if (e.target.tagName === 'BUTTON') {
+    // But allow the browse button to work
+    if (e.target.tagName === 'BUTTON' && e.target.id !== 'browse-btn') {
       console.log('🔘 Upload button clicked, not triggering file dialog');
       return;
     }
@@ -139,37 +156,39 @@ export class FileHandler {
     console.log('🔍 File input type:', this.fileInput?.type);
     console.log('🔍 File input accept:', this.fileInput?.accept);
 
-    if (this.fileInput) {
-      // Force trigger the file input click
-      try {
-        // Make sure the file input is properly configured
-        this.fileInput.type = 'file';
-        this.fileInput.accept = '.pdf';
-        this.fileInput.style.display = 'none';
+    // Prevent multiple file dialogs from opening
+    if (this.isFileDialogOpen) {
+      console.log('⚠️ File dialog already open, ignoring click');
+      return;
+    }
 
-        // Trigger the click
-        this.fileInput.click();
-        console.log('✅ File dialog triggered successfully');
-      } catch (error) {
-        console.error('❌ Failed to trigger file dialog:', error);
+    // Create a new temporary file input for each click
+    try {
+      console.log('🎯 Creating temporary file input...');
+      this.isFileDialogOpen = true; // Set flag
 
-        // Fallback: create a new file input
-        try {
-          const newInput = document.createElement('input');
-          newInput.type = 'file';
-          newInput.accept = '.pdf';
-          newInput.style.display = 'none';
-          newInput.addEventListener('change', this.handleFileInput);
-          document.body.appendChild(newInput);
-          newInput.click();
-          document.body.removeChild(newInput);
-          console.log('✅ Fallback file dialog triggered');
-        } catch (fallbackError) {
-          console.error('❌ Fallback file dialog also failed:', fallbackError);
-        }
-      }
-    } else {
-      console.error('❌ File input not available for click');
+      const tempInput = document.createElement('input');
+      tempInput.type = 'file';
+      tempInput.accept = '.pdf';
+      tempInput.style.display = 'none';
+
+      // Add change event listener
+      tempInput.addEventListener('change', (e) => {
+        console.log('🎯 Temporary file input change event fired!');
+        this.isFileDialogOpen = false; // Reset flag
+        this.handleFileInput(e);
+        // Clean up
+        document.body.removeChild(tempInput);
+      });
+
+      // Add to DOM and trigger click
+      document.body.appendChild(tempInput);
+      tempInput.click();
+      console.log('✅ Temporary file dialog triggered successfully');
+
+    } catch (error) {
+      console.error('❌ Failed to create temporary file input:', error);
+      this.isFileDialogOpen = false; // Reset flag on error
     }
   }
 

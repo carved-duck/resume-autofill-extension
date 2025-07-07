@@ -1,7 +1,7 @@
 // Configuration module
 export const API_CONFIG = {
   // For development (enhanced backend)
-  development: 'http://localhost:3001',
+  development: 'http://localhost:3000',
   // For production (update when you deploy)
   production: 'https://your-app.herokuapp.com'
 };
