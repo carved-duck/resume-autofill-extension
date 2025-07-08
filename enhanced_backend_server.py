@@ -20,7 +20,10 @@ from werkzeug.utils import secure_filename
 import PyPDF2
 from PIL import Image
 import pytesseract
-from pdf2image import convert_from_path
+try:
+    from pdf2image.pdf2image import convert_from_path
+except ImportError:
+    convert_from_path = None
 
 # Configure logging
 logging.basicConfig(
@@ -113,6 +116,11 @@ class EnhancedResumeParser:
             logger.info("🔍 Starting OCR extraction...")
 
             # Convert PDF to images
+            if convert_from_path is None:
+                logger.error("❌ pdf2image is not available. Cannot perform OCR extraction.")
+                self.text_content = "Error: pdf2image is not available. Cannot perform OCR extraction."
+                return
+
             images = convert_from_path(self.file_path, dpi=300)
 
             # Extract text from each image using Tesseract
@@ -423,9 +431,10 @@ def check_system_dependencies():
 
     # Check Poppler (for pdf2image)
     try:
-        from pdf2image import convert_from_path
-        # Try a small test
-        logger.info("✅ Poppler/pdf2image found")
+        if convert_from_path:
+            logger.info("✅ Poppler/pdf2image found")
+        else:
+            logger.warning("⚠️ Poppler/pdf2image not found")
     except Exception:
         missing_deps.append("Poppler (for PDF conversion)")
 
@@ -599,8 +608,56 @@ def parse_linkedin_text(text):
         if line.upper() in ['PERSONAL INFORMATION', 'EXPERIENCE', 'EDUCATION', 'SKILLS', 'PROJECTS', 'CERTIFICATIONS', 'LANGUAGES', 'SUMMARY']:
             continue
 
-        # Name (usually first line or prominent, but not section headers)
-        if i < 5 and len(line) > 3 and len(line) < 100 and 'developer' not in line.lower() and 'engineer' not in line.lower() and 'information' not in line.lower():
+        # Look for labeled personal info
+        if line.startswith('Name:'):
+            name = line.replace('Name:', '').strip()
+            if name and 'information' not in name.lower():
+                parsed_data['personal']['full_name'] = name
+                # Split name
+                name_parts = name.split()
+                if len(name_parts) >= 2:
+                    parsed_data['personal']['first_name'] = name_parts[0]
+                    parsed_data['personal']['last_name'] = name_parts[-1]
+            continue
+
+        if line.startswith('Headline:'):
+            headline = line.replace('Headline:', '').strip()
+            if headline:
+                parsed_data['personal']['headline'] = headline
+            continue
+
+        if line.startswith('Location:'):
+            location = line.replace('Location:', '').strip()
+            if location:
+                parsed_data['personal']['location'] = location
+            continue
+
+        if line.startswith('Email:'):
+            email = line.replace('Email:', '').strip()
+            if email and '@' in email:
+                parsed_data['personal']['email'] = email
+            continue
+
+        if line.startswith('Phone:'):
+            phone = line.replace('Phone:', '').strip()
+            if phone:
+                parsed_data['personal']['phone'] = phone
+            continue
+
+        if line.startswith('LinkedIn:'):
+            linkedin = line.replace('LinkedIn:', '').strip()
+            if linkedin:
+                parsed_data['personal']['linkedin'] = linkedin
+            continue
+
+        # Fallback: Name (usually first line or prominent, but not section headers or labels)
+        if (i < 5 and len(line) > 3 and len(line) < 100 and
+            'developer' not in line.lower() and 'engineer' not in line.lower() and
+            'information' not in line.lower() and ':' not in line and
+            not line.startswith('School:') and not line.startswith('Degree:') and
+            not line.startswith('Year:') and not line.startswith('Title:') and
+            not line.startswith('Company:') and not line.startswith('Dates:') and
+            not line.startswith('Description:')):
             if not parsed_data['personal'].get('full_name'):
                 parsed_data['personal']['full_name'] = line
                 # Split name
@@ -610,26 +667,26 @@ def parse_linkedin_text(text):
                     parsed_data['personal']['last_name'] = name_parts[-1]
                 continue
 
-        # Headline (look for job titles in personal section)
+        # Fallback: Headline (look for job titles in personal section)
         if any(keyword in line.lower() for keyword in ['developer', 'engineer', 'manager', 'analyst', 'coordinator', 'specialist', 'director', 'lead', 'senior', 'junior']) and len(line) < 200:
             if not parsed_data['personal'].get('headline'):
                 parsed_data['personal']['headline'] = line
                 continue
 
-        # Email
+        # Fallback: Email
         if '@' in line and '.' in line and len(line) < 100:
             email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', line)
             if email_match:
                 parsed_data['personal']['email'] = email_match.group()
                 continue
 
-        # Phone
+        # Fallback: Phone
         phone_match = re.search(r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', line)
         if phone_match:
             parsed_data['personal']['phone'] = phone_match.group()
             continue
 
-        # Location (look for city, country patterns)
+        # Fallback: Location (look for city, country patterns)
         if any(keyword in line.lower() for keyword in ['japan', 'tokyo', 'california', 'san francisco', 'new york', 'london', 'paris', 'berlin', 'amsterdam', 'singapore', 'sydney', 'toronto', 'vancouver']) or re.search(r'[A-Z][a-z]+,\s*[A-Z][a-z]+', line):
             if not parsed_data['personal'].get('location'):
                 parsed_data['personal']['location'] = line
@@ -658,26 +715,52 @@ def parse_linkedin_text(text):
             if not line.strip() or line.upper() in ['EXPERIENCE', 'EDUCATION', 'SKILLS', 'PROJECTS']:
                 continue
 
-            # Job title patterns (more specific)
+            # Look for labeled experience info
+            if line.startswith('Title:'):
+                title = line.replace('Title:', '').strip()
+                if current_job and current_job.get('title'):
+                    parsed_data['experience'].append(current_job)
+                current_job = {'title': title, 'company': '', 'dates': '', 'description': ''}
+                continue
+
+            if line.startswith('Company:'):
+                company = line.replace('Company:', '').strip()
+                if current_job and not current_job.get('company'):
+                    current_job['company'] = company
+                continue
+
+            if line.startswith('Dates:'):
+                dates = line.replace('Dates:', '').strip()
+                if current_job and not current_job.get('dates'):
+                    current_job['dates'] = dates
+                continue
+
+            if line.startswith('Description:'):
+                description = line.replace('Description:', '').strip()
+                if current_job:
+                    current_job['description'] = description
+                continue
+
+            # Fallback: Job title patterns (more specific)
             if any(keyword in line_lower for keyword in ['engineer', 'developer', 'manager', 'analyst', 'coordinator', 'specialist', 'director', 'lead', 'senior', 'junior', 'consultant', 'architect']):
                 if current_job and current_job.get('title'):
                     parsed_data['experience'].append(current_job)
                 current_job = {'title': line, 'company': '', 'dates': '', 'description': ''}
                 continue
 
-            # Company patterns (look for company indicators)
+            # Fallback: Company patterns (look for company indicators)
             if any(keyword in line_lower for keyword in ['inc', 'llc', 'corp', 'company', 'ltd', 'group', 'agency', 'startup', 'tech', 'systems', 'solutions']) or '•' in line:
                 if current_job and not current_job.get('company'):
                     current_job['company'] = line
                 continue
 
-            # Date patterns
+            # Fallback: Date patterns
             if re.search(r'\b(20\d{2}|19\d{2})\b', line) or re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', line_lower):
                 if current_job and not current_job.get('dates'):
                     current_job['dates'] = line
                 continue
 
-            # Description (longer text, but not bullet points)
+            # Fallback: Description (longer text, but not bullet points)
             if len(line) > 30 and current_job and not line.startswith('•') and not line.startswith('-'):
                 if current_job.get('description'):
                     current_job['description'] += ' ' + line
@@ -715,7 +798,30 @@ def parse_linkedin_text(text):
             if not line.strip() or line.upper() in ['EDUCATION', 'EXPERIENCE', 'SKILLS', 'PROJECTS']:
                 continue
 
-            # School patterns
+            # Look for labeled education info
+            if line.startswith('School:'):
+                school = line.replace('School:', '').strip()
+                if current_edu and current_edu.get('school'):
+                    edu_key = f"{current_edu.get('school', '')}-{current_edu.get('degree', '')}"
+                    if edu_key not in seen_education:
+                        parsed_data['education'].append(current_edu)
+                        seen_education.add(edu_key)
+                current_edu = {'school': school, 'degree': '', 'year': ''}
+                continue
+
+            if line.startswith('Degree:'):
+                degree = line.replace('Degree:', '').strip()
+                if current_edu and not current_edu.get('degree'):
+                    current_edu['degree'] = degree
+                continue
+
+            if line.startswith('Year:'):
+                year = line.replace('Year:', '').strip()
+                if current_edu and not current_edu.get('year'):
+                    current_edu['year'] = year
+                continue
+
+            # Fallback: School patterns
             if any(keyword in line_lower for keyword in ['university', 'college', 'institute', 'school']):
                 if current_edu and current_edu.get('school'):
                     edu_key = f"{current_edu.get('school', '')}-{current_edu.get('degree', '')}"
@@ -725,13 +831,13 @@ def parse_linkedin_text(text):
                 current_edu = {'school': line, 'degree': '', 'year': ''}
                 continue
 
-            # Degree patterns
+            # Fallback: Degree patterns
             if any(keyword in line_lower for keyword in ['bachelor', 'master', 'phd', 'mba', 'bs', 'ba', 'ms', 'ma', 'degree', 'diploma', 'certificate']):
                 if current_edu and not current_edu.get('degree'):
                     current_edu['degree'] = line
                 continue
 
-            # Year patterns
+            # Fallback: Year patterns
             year_match = re.search(r'\b(20\d{2}|19\d{2})\b', line)
             if year_match and current_edu and not current_edu.get('year'):
                 current_edu['year'] = year_match.group()
@@ -797,7 +903,10 @@ def health_check():
     deps_ok = True
     try:
         pytesseract.get_tesseract_version()
-        from pdf2image import convert_from_path
+        if convert_from_path:
+            logger.info("✅ Poppler/pdf2image found")
+        else:
+            logger.warning("⚠️ Poppler/pdf2image not found")
     except Exception:
         deps_ok = False
 
