@@ -147,6 +147,11 @@ export class FormFiller {
         }, (response) => {
           this.isAnalyzing = false;
 
+          if (chrome.runtime.lastError) {
+            reject(new Error('Content script not available: ' + chrome.runtime.lastError.message));
+            return;
+          }
+
           if (!response) {
             reject(new Error('Could not analyze page. Make sure content script is loaded.'));
             return;
@@ -178,6 +183,11 @@ export class FormFiller {
       chrome.tabs.sendMessage(currentTab.id, {
         action: 'tryIntelligentButtons'
       }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error('Content script not available: ' + chrome.runtime.lastError.message));
+          return;
+        }
+
         if (!response) {
           reject(new Error('Could not communicate with page'));
           return;
@@ -204,6 +214,11 @@ export class FormFiller {
       chrome.tabs.sendMessage(currentTab.id, {
         action: 'startMonitoring'
       }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error('Content script not available: ' + chrome.runtime.lastError.message));
+          return;
+        }
+
         if (!response) {
           reject(new Error('Could not start monitoring'));
           return;
@@ -229,6 +244,11 @@ export class FormFiller {
       chrome.tabs.sendMessage(currentTab.id, {
         action: 'stopMonitoring'
       }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error('Content script not available: ' + chrome.runtime.lastError.message));
+          return;
+        }
+
         if (!response) {
           reject(new Error('Could not stop monitoring'));
           return;
@@ -271,6 +291,10 @@ export class FormFiller {
         chrome.tabs.sendMessage(currentTab.id, {
           action: 'ping'
         }, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve(false);
+            return;
+          }
           resolve(!!response?.success);
         });
       });
@@ -316,7 +340,8 @@ export class FormFiller {
           clearTimeout(timeout);
 
           if (chrome.runtime.lastError) {
-            console.warn('⚠️ Content script communication failed:', chrome.runtime.lastError.message);
+            // Content script not available - this is expected on many pages
+            console.log('ℹ️ Content script not available:', chrome.runtime.lastError.message);
             reject(new Error('Content script not available'));
             return;
           }
@@ -328,6 +353,7 @@ export class FormFiller {
               message: response.message || 'Content script is active'
             });
           } else {
+            console.log('ℹ️ Content script not responding as expected');
             reject(new Error('Content script not responding'));
           }
         });

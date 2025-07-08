@@ -69,6 +69,31 @@ class PopupController {
         };
       }
 
+      // Wire up show data button
+      const showDataBtn = document.getElementById('showDataBtn');
+      if (showDataBtn) {
+        showDataBtn.onclick = async () => {
+          console.log('[Popup] Show Data button clicked');
+          await this.handleShowExtractedData();
+        };
+      }
+
+      // Wire up modal close functionality
+      const dataModal = document.getElementById('dataModal');
+      const closeDataModal = document.getElementById('closeDataModal');
+      if (dataModal && closeDataModal) {
+        closeDataModal.onclick = () => {
+          dataModal.style.display = 'none';
+        };
+
+        // Close modal when clicking outside
+        dataModal.onclick = (e) => {
+          if (e.target === dataModal) {
+            dataModal.style.display = 'none';
+          }
+        };
+      }
+
       // Check content script readiness (don't fail initialization if this fails)
       try {
         await this.checkContentScriptStatus();
@@ -199,21 +224,21 @@ class PopupController {
         return;
       }
 
-      // Try to communicate with content script
+      // Try to communicate with content script (non-blocking)
       try {
         const info = await this.formFiller.getContentScriptInfo();
-        if (info.ready) {
+        if (info && info.ready) {
           console.log('🔗 Content script ready with features:', info.features);
           this.uiManager.showStatus('Extension ready for intelligent form filling', 'success');
         }
       } catch (error) {
-        console.warn('⚠️ Content script not ready:', error.message);
+        // Content script not ready is expected on many pages - don't show as error
+        console.log('ℹ️ Content script not available (expected on non-supported sites)');
 
-        // Check if we're on a supported site but content script isn't responding
+        // Only show status if we're on a supported site where content scripts should work
         if (isSupportedSite) {
-          this.uiManager.showStatus('Please refresh the page to enable form filling', 'warning');
-        } else {
-          this.uiManager.showStatus('Navigate to a supported job site to enable form filling', 'info');
+          console.log('⚠️ Content script should be available but isn\'t responding - page may need refresh');
+          // Don't show error message to user - just log it
         }
       }
     } catch (error) {
@@ -761,6 +786,222 @@ class PopupController {
     } catch (error) {
       this.uiManager.showStatus('Failed to load stored data: ' + error.message, 'error');
     }
+  }
+
+  async handleShowExtractedData() {
+    try {
+      console.log('[Popup] Showing extracted data modal');
+
+      // Get the current resume data
+      const data = await this.storageManager.getResumeData();
+      if (!data) {
+        this.uiManager.showStatus('No extracted data found', 'warning');
+        return;
+      }
+
+      // Get storage info for metadata
+      const storageInfo = await this.storageManager.getStorageInfo();
+
+      // Create modal content
+      const modalBody = document.getElementById('dataModalBody');
+      if (!modalBody) {
+        console.error('Modal body element not found');
+        return;
+      }
+
+      modalBody.innerHTML = this.createDataModalContent(data, storageInfo);
+
+      // Show the modal
+      const dataModal = document.getElementById('dataModal');
+      if (dataModal) {
+        dataModal.style.display = 'flex';
+      }
+    } catch (error) {
+      console.error('[Popup] Error showing extracted data:', error);
+      this.uiManager.showStatus('Failed to load extracted data', 'error');
+    }
+  }
+
+  createDataModalContent(data, storageInfo) {
+    let content = '';
+
+    // Add metadata section
+    if (storageInfo) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">📊 Data Source Information</div>
+          <div class="data-section-content">
+            <div class="data-item-modal"><strong>Source:</strong> ${storageInfo.source || 'Unknown'}</div>
+            <div class="data-item-modal"><strong>Last Updated:</strong> ${storageInfo.lastUpdated || 'Unknown'}</div>
+            <div class="data-item-modal"><strong>Has Data:</strong> ${storageInfo.hasData ? 'Yes' : 'No'}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Add personal information section
+    const personalInfo = data.personal_info || data.personal || {};
+    if (personalInfo && Object.keys(personalInfo).length > 0) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">👤 Personal Information</div>
+          <div class="data-section-content">
+            ${Object.entries(personalInfo).map(([key, value]) =>
+              `<div class="data-item-modal"><strong>${this.formatFieldName(key)}:</strong> ${value || 'Not provided'}</div>`
+            ).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Add summary section
+    if (data.summary && data.summary.length > 0) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">📝 Summary</div>
+          <div class="data-section-content">
+            <div class="data-item-modal">${data.summary}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Add experience section
+    const experience = data.work_experience || data.experience || [];
+    if (experience && experience.length > 0) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">💼 Work Experience (${experience.length} entries)</div>
+          <div class="data-section-content">
+            ${experience.map((exp, index) => `
+              <div class="data-item-modal">
+                <strong>Job ${index + 1}:</strong>
+                <ul class="data-list">
+                  ${exp.title || exp.job_title ? `<li><strong>Title:</strong> ${exp.title || exp.job_title}</li>` : ''}
+                  ${exp.company ? `<li><strong>Company:</strong> ${exp.company}</li>` : ''}
+                  ${exp.dates || exp.duration ? `<li><strong>Dates:</strong> ${exp.dates || exp.duration}</li>` : ''}
+                  ${exp.location ? `<li><strong>Location:</strong> ${exp.location}</li>` : ''}
+                  ${exp.description ? `<li><strong>Description:</strong> ${exp.description}</li>` : ''}
+                </ul>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Add education section
+    if (data.education && data.education.length > 0) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">🎓 Education (${data.education.length} entries)</div>
+          <div class="data-section-content">
+            ${data.education.map((edu, index) => `
+              <div class="data-item-modal">
+                <strong>Education ${index + 1}:</strong>
+                <ul class="data-list">
+                  ${edu.school || edu.institution ? `<li><strong>School:</strong> ${edu.school || edu.institution}</li>` : ''}
+                  ${edu.degree ? `<li><strong>Degree:</strong> ${edu.degree}</li>` : ''}
+                  ${edu.year ? `<li><strong>Year:</strong> ${edu.year}</li>` : ''}
+                  ${edu.gpa ? `<li><strong>GPA:</strong> ${edu.gpa}</li>` : ''}
+                </ul>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Add skills section
+    if (data.skills && data.skills.length > 0) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">🛠️ Skills (${data.skills.length} skills)</div>
+          <div class="data-section-content">
+            <div class="data-item-modal">${data.skills.join(', ')}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Add projects section
+    if (data.projects && data.projects.length > 0) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">🚀 Projects (${data.projects.length} projects)</div>
+          <div class="data-section-content">
+            ${data.projects.map((proj, index) => `
+              <div class="data-item-modal">
+                <strong>Project ${index + 1}:</strong>
+                <ul class="data-list">
+                  ${proj.name ? `<li><strong>Name:</strong> ${proj.name}</li>` : ''}
+                  ${proj.description ? `<li><strong>Description:</strong> ${proj.description}</li>` : ''}
+                </ul>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Add languages section
+    if (data.languages && data.languages.length > 0) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">🌍 Languages (${data.languages.length} languages)</div>
+          <div class="data-section-content">
+            ${data.languages.map((lang, index) => `
+              <div class="data-item-modal">
+                <strong>Language ${index + 1}:</strong>
+                <ul class="data-list">
+                  ${lang.language ? `<li><strong>Language:</strong> ${lang.language}</li>` : ''}
+                  ${lang.proficiency ? `<li><strong>Proficiency:</strong> ${lang.proficiency}</li>` : ''}
+                </ul>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Add certifications section
+    if (data.certifications && data.certifications.length > 0) {
+      content += `
+        <div class="data-section">
+          <div class="data-section-title">🏆 Certifications (${data.certifications.length} certifications)</div>
+          <div class="data-section-content">
+            ${data.certifications.map((cert, index) => `
+              <div class="data-item-modal">
+                <strong>Certification ${index + 1}:</strong>
+                <ul class="data-list">
+                  ${cert.name ? `<li><strong>Name:</strong> ${cert.name}</li>` : ''}
+                  ${cert.issuer ? `<li><strong>Issuer:</strong> ${cert.issuer}</li>` : ''}
+                  ${cert.year ? `<li><strong>Year:</strong> ${cert.year}</li>` : ''}
+                </ul>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Add raw JSON section for debugging
+    content += `
+      <div class="data-section">
+        <div class="data-section-title">🔍 Raw Data (JSON)</div>
+        <div class="data-section-content">
+          <div class="json-data">${JSON.stringify(data, null, 2)}</div>
+        </div>
+      </div>
+    `;
+
+    return content || '<div class="no-data-text">No data available to display</div>';
+  }
+
+  formatFieldName(fieldName) {
+    return fieldName
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, l => l.toUpperCase());
   }
 
   handleReplaceData() {

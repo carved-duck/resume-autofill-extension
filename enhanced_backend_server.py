@@ -529,6 +529,266 @@ def parse_resume():
             'error': f'Server error: {str(e)}'
         }), 500
 
+@app.route('/linkedin/parse_api', methods=['POST'])
+def parse_linkedin_profile():
+    """Parse LinkedIn profile text using text-based parser"""
+
+    logger.info("🔍 [API] Received LinkedIn profile parsing request")
+
+    if not request.is_json:
+        return jsonify({
+            'success': False,
+            'error': 'Content-Type must be application/json'
+        }), 400
+
+    data = request.get_json()
+    profile_text = data.get('profile_text', '')
+
+    if not profile_text:
+        return jsonify({
+            'success': False,
+            'error': 'No profile text provided'
+        }), 400
+
+    try:
+        logger.info("🔍 [API] Starting LinkedIn profile parsing...")
+        logger.info(f"🔍 [API] Profile text length: {len(profile_text)} characters")
+        logger.info(f"🔍 [API] First 200 chars: {profile_text[:200]}")
+
+        # Parse the LinkedIn profile text directly
+        parsed_data = parse_linkedin_text(profile_text)
+
+        # Log parsing results
+        logger.info("✅ [API] LinkedIn parsing successful")
+        logger.info(f"🔍 [API] Parsed data keys: {list(parsed_data.keys())}")
+        for key, value in parsed_data.items():
+            if isinstance(value, list):
+                logger.info(f"🔍 [API] {key}: {len(value)} items")
+            elif isinstance(value, dict):
+                logger.info(f"🔍 [API] {key}: {value}")
+
+        return jsonify({
+            'success': True,
+            'data': parsed_data,
+            'message': 'LinkedIn profile parsed successfully',
+            'text_length': len(profile_text)
+        })
+
+    except Exception as e:
+        logger.error(f"❌ [API] LinkedIn parsing failed: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Server error: {str(e)}'
+        }), 500
+
+def parse_linkedin_text(text):
+    """Parse LinkedIn profile text and extract structured data"""
+
+    parsed_data = {
+        'personal': {},
+        'experience': [],
+        'education': [],
+        'skills': []
+    }
+
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+    # Extract personal information
+    for i, line in enumerate(lines):
+        # Skip section headers
+        if line.upper() in ['PERSONAL INFORMATION', 'EXPERIENCE', 'EDUCATION', 'SKILLS', 'PROJECTS', 'CERTIFICATIONS', 'LANGUAGES', 'SUMMARY']:
+            continue
+
+        # Name (usually first line or prominent, but not section headers)
+        if i < 5 and len(line) > 3 and len(line) < 100 and 'developer' not in line.lower() and 'engineer' not in line.lower() and 'information' not in line.lower():
+            if not parsed_data['personal'].get('full_name'):
+                parsed_data['personal']['full_name'] = line
+                # Split name
+                name_parts = line.split()
+                if len(name_parts) >= 2:
+                    parsed_data['personal']['first_name'] = name_parts[0]
+                    parsed_data['personal']['last_name'] = name_parts[-1]
+                continue
+
+        # Headline (look for job titles in personal section)
+        if any(keyword in line.lower() for keyword in ['developer', 'engineer', 'manager', 'analyst', 'coordinator', 'specialist', 'director', 'lead', 'senior', 'junior']) and len(line) < 200:
+            if not parsed_data['personal'].get('headline'):
+                parsed_data['personal']['headline'] = line
+                continue
+
+        # Email
+        if '@' in line and '.' in line and len(line) < 100:
+            email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', line)
+            if email_match:
+                parsed_data['personal']['email'] = email_match.group()
+                continue
+
+        # Phone
+        phone_match = re.search(r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', line)
+        if phone_match:
+            parsed_data['personal']['phone'] = phone_match.group()
+            continue
+
+        # Location (look for city, country patterns)
+        if any(keyword in line.lower() for keyword in ['japan', 'tokyo', 'california', 'san francisco', 'new york', 'london', 'paris', 'berlin', 'amsterdam', 'singapore', 'sydney', 'toronto', 'vancouver']) or re.search(r'[A-Z][a-z]+,\s*[A-Z][a-z]+', line):
+            if not parsed_data['personal'].get('location'):
+                parsed_data['personal']['location'] = line
+                continue
+
+    # Extract experience
+    experience_section = False
+    current_job = {}
+
+    for line in lines:
+        line_lower = line.lower()
+
+        # Start experience section
+        if 'experience' in line_lower or line.upper() == 'EXPERIENCE':
+            experience_section = True
+            continue
+
+        # Stop at next section
+        if experience_section and any(keyword in line_lower for keyword in ['education', 'skills', 'projects']) or line.upper() in ['EDUCATION', 'SKILLS', 'PROJECTS']:
+            if current_job and current_job.get('title'):
+                parsed_data['experience'].append(current_job)
+            break
+
+        if experience_section:
+            # Skip empty lines and section headers
+            if not line.strip() or line.upper() in ['EXPERIENCE', 'EDUCATION', 'SKILLS', 'PROJECTS']:
+                continue
+
+            # Job title patterns (more specific)
+            if any(keyword in line_lower for keyword in ['engineer', 'developer', 'manager', 'analyst', 'coordinator', 'specialist', 'director', 'lead', 'senior', 'junior', 'consultant', 'architect']):
+                if current_job and current_job.get('title'):
+                    parsed_data['experience'].append(current_job)
+                current_job = {'title': line, 'company': '', 'dates': '', 'description': ''}
+                continue
+
+            # Company patterns (look for company indicators)
+            if any(keyword in line_lower for keyword in ['inc', 'llc', 'corp', 'company', 'ltd', 'group', 'agency', 'startup', 'tech', 'systems', 'solutions']) or '•' in line:
+                if current_job and not current_job.get('company'):
+                    current_job['company'] = line
+                continue
+
+            # Date patterns
+            if re.search(r'\b(20\d{2}|19\d{2})\b', line) or re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', line_lower):
+                if current_job and not current_job.get('dates'):
+                    current_job['dates'] = line
+                continue
+
+            # Description (longer text, but not bullet points)
+            if len(line) > 30 and current_job and not line.startswith('•') and not line.startswith('-'):
+                if current_job.get('description'):
+                    current_job['description'] += ' ' + line
+                else:
+                    current_job['description'] = line
+
+    # Add last job if it has a title
+    if current_job and current_job.get('title'):
+        parsed_data['experience'].append(current_job)
+
+    # Extract education
+    education_section = False
+    current_edu = {}
+    seen_education = set()
+
+    for line in lines:
+        line_lower = line.lower()
+
+        # Start education section
+        if 'education' in line_lower or line.upper() == 'EDUCATION':
+            education_section = True
+            continue
+
+        # Stop at next section
+        if education_section and any(keyword in line_lower for keyword in ['experience', 'skills', 'projects']) or line.upper() in ['EXPERIENCE', 'SKILLS', 'PROJECTS']:
+            if current_edu and current_edu.get('school'):
+                edu_key = f"{current_edu.get('school', '')}-{current_edu.get('degree', '')}"
+                if edu_key not in seen_education:
+                    parsed_data['education'].append(current_edu)
+                    seen_education.add(edu_key)
+            break
+
+        if education_section:
+            # Skip empty lines and section headers
+            if not line.strip() or line.upper() in ['EDUCATION', 'EXPERIENCE', 'SKILLS', 'PROJECTS']:
+                continue
+
+            # School patterns
+            if any(keyword in line_lower for keyword in ['university', 'college', 'institute', 'school']):
+                if current_edu and current_edu.get('school'):
+                    edu_key = f"{current_edu.get('school', '')}-{current_edu.get('degree', '')}"
+                    if edu_key not in seen_education:
+                        parsed_data['education'].append(current_edu)
+                        seen_education.add(edu_key)
+                current_edu = {'school': line, 'degree': '', 'year': ''}
+                continue
+
+            # Degree patterns
+            if any(keyword in line_lower for keyword in ['bachelor', 'master', 'phd', 'mba', 'bs', 'ba', 'ms', 'ma', 'degree', 'diploma', 'certificate']):
+                if current_edu and not current_edu.get('degree'):
+                    current_edu['degree'] = line
+                continue
+
+            # Year patterns
+            year_match = re.search(r'\b(20\d{2}|19\d{2})\b', line)
+            if year_match and current_edu and not current_edu.get('year'):
+                current_edu['year'] = year_match.group()
+
+    # Add last education if not duplicate
+    if current_edu and current_edu.get('school'):
+        edu_key = f"{current_edu.get('school', '')}-{current_edu.get('degree', '')}"
+        if edu_key not in seen_education:
+            parsed_data['education'].append(current_edu)
+
+    # Extract skills
+    skills_section = False
+    skills = set()
+
+    for line in lines:
+        line_lower = line.lower()
+
+        # Start skills section
+        if 'skills' in line_lower or line.upper() == 'SKILLS':
+            skills_section = True
+            continue
+
+        # Stop at next section
+        if skills_section and any(keyword in line_lower for keyword in ['experience', 'education', 'projects']) or line.upper() in ['EXPERIENCE', 'EDUCATION', 'PROJECTS']:
+            break
+
+        if skills_section:
+            # Skip empty lines and section headers
+            if not line.strip() or line.upper() in ['SKILLS', 'EXPERIENCE', 'EDUCATION', 'PROJECTS']:
+                continue
+
+            # Extract skills from line
+            skill_words = re.split(r'[,•·\-\n]', line)
+            for word in skill_words:
+                word = word.strip()
+                if len(word) > 2 and len(word) < 30:
+                    skills.add(word)
+
+    # Also look for skills throughout the text
+    tech_skills = [
+        'python', 'javascript', 'java', 'c++', 'c#', 'php', 'ruby', 'go', 'rust', 'swift',
+        'react', 'vue', 'angular', 'node', 'express', 'django', 'flask', 'rails',
+        'html', 'css', 'sass', 'less', 'bootstrap', 'tailwind',
+        'sql', 'postgresql', 'mysql', 'mongodb', 'redis', 'elasticsearch',
+        'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git', 'github',
+        'linux', 'windows', 'macos', 'bash', 'powershell'
+    ]
+
+    text_lower = text.lower()
+    for skill in tech_skills:
+        if skill in text_lower:
+            skills.add(skill.title())
+
+    parsed_data['skills'] = list(skills)[:20]  # Limit to 20 skills
+
+    return parsed_data
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint with system info"""

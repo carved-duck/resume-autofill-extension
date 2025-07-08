@@ -115,7 +115,7 @@ Feel free to add support for more job sites by updating the field selectors in `
 
 ## 📝 License
 
-This project is for personal use. Please respect the terms of service of job sites you use it on.
+This project is for personal use and is purely educational. I have made it out of frustration of having to sign up and use the same information for multiple job boards. Please respect the terms of service of job sites you use it on.
 
 ---
 
