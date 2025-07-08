@@ -7,7 +7,7 @@ export const API_CONFIG = {
 };
 
 // Automatically detect environment
-export const API_BASE_URL = API_CONFIG.development; // Change to production when ready
+export const API_BASE_URL = API_CONFIG.development; // 'http://localhost:3000'
 
 // Supported sites for auto-fill
 export const SUPPORTED_SITES = [

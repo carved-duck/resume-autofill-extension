@@ -36,7 +36,7 @@ CORS(app)  # Enable CORS for Chrome extension
 UPLOAD_FOLDER = tempfile.gettempdir()
 ALLOWED_EXTENSIONS = {'pdf'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-PORT = 3001  # Changed from 3000 to avoid conflict with Tokyo-Turntable
+PORT = 3000  # Consolidated port for Chrome extension compatibility
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
@@ -439,6 +439,9 @@ def check_system_dependencies():
 def parse_resume():
     """Parse uploaded resume PDF with OCR fallback"""
 
+    logger.info("🔍 [API] Received resume upload request")
+    logger.info(f"🔍 [API] Request files: {list(request.files.keys())}")
+
     if 'resume_file' not in request.files:
         return jsonify({
             'success': False,
@@ -446,20 +449,25 @@ def parse_resume():
         }), 400
 
     file = request.files['resume_file']
+    logger.info(f"🔍 [API] File received: {file.filename}")
 
     if file.filename == '':
+        logger.error("❌ [API] Empty filename")
         return jsonify({
             'success': False,
             'error': 'No file selected'
         }), 400
 
     if not allowed_file(file.filename):
+        logger.error(f"❌ [API] Invalid file type: {file.filename}")
         return jsonify({
             'success': False,
             'error': 'Only PDF files are allowed'
         }), 400
 
     try:
+        logger.info("🔍 [API] Starting PDF processing...")
+
         # Save uploaded file temporarily
         if not file.filename:
             return jsonify({
@@ -469,15 +477,34 @@ def parse_resume():
 
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{filename}")
+        logger.info(f"🔍 [API] Saving file to: {file_path}")
+
         file.save(file_path)
+        logger.info("✅ [API] File saved successfully")
+
+        # Check file size
+        file_size = os.path.getsize(file_path)
+        logger.info(f"🔍 [API] Saved file size: {file_size} bytes")
 
         # Parse using enhanced parser
+        logger.info("🔍 [API] Starting enhanced parsing...")
         parser = EnhancedResumeParser(file_path)
         parsed_data = parser.parse()
 
+        # Log parsing results
+        logger.info("✅ [API] Parsing successful")
+        logger.info(f"🔍 [API] Parsed data keys: {list(parsed_data.keys())}")
+        for key, value in parsed_data.items():
+            if isinstance(value, list):
+                logger.info(f"🔍 [API] {key}: {len(value)} items")
+            elif isinstance(value, dict):
+                logger.info(f"🔍 [API] {key}: {value}")
+
         # Clean up temp file
         os.remove(file_path)
+        logger.info("✅ [API] Temporary file cleaned up")
 
+        logger.info("✅ [API] Processing completed successfully")
         return jsonify({
             'success': True,
             'data': parsed_data,
@@ -486,11 +513,16 @@ def parse_resume():
         })
 
     except Exception as e:
+        logger.error(f"❌ [API] Exception occurred: {str(e)}")
+        logger.error(f"❌ [API] Exception type: {type(e).__name__}")
+
         # Clean up temp file if it exists
         if 'file_path' in locals() and os.path.exists(file_path):
-            os.remove(file_path)
-
-        logger.error(f"Resume parsing error: {str(e)}")
+            try:
+                os.remove(file_path)
+                logger.info("✅ [API] Cleaned up temp file after error")
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ [API] Failed to cleanup temp file: {cleanup_error}")
 
         return jsonify({
             'success': False,
@@ -523,8 +555,8 @@ def health_check():
 
 if __name__ == '__main__':
     print("🚀 Starting Enhanced Resume Auto-Fill API Server...")
-    print("📡 Server will be available at: http://localhost:3001")
-    print("🔗 Chrome extension should point to: http://localhost:3001/resume/parse_api")
+    print("📡 Server will be available at: http://localhost:3000")
+    print("🔗 Chrome extension should point to: http://localhost:3000/resume/parse_api")
     print("⚡ Features: PDF text extraction + OCR fallback + Advanced parsing")
 
     # Check dependencies

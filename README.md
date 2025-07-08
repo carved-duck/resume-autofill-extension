@@ -34,11 +34,17 @@ pip install -r requirements.txt
 ### 2. Start the Backend Server
 
 ```bash
-# Start the PDF parsing API
-python backend_server.py
+# Start the enhanced PDF parsing API with OCR support
+python3 enhanced_backend_server.py
 ```
 
 The server will run on `http://localhost:3000`
+
+**Note**: We've consolidated all backend functionality into `enhanced_backend_server.py` which includes:
+- PDF text extraction
+- OCR fallback for image-based PDFs
+- Enhanced parsing with better data extraction
+- Comprehensive logging for debugging
 
 ### 3. Load Chrome Extension
 
