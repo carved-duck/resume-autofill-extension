@@ -25,6 +25,13 @@ if (window.resumeAutoFillContentScriptLoaded) {
         // Wait for modules to be loaded
         await this.waitForModules();
 
+        // --------------------------------------------------
+        // Make sure every part of the code can access StorageManager
+        // --------------------------------------------------
+        if (window.ResumeStorageManager && !window.StorageManager) {
+          window.StorageManager = window.ResumeStorageManager;
+        }
+
         // Initialize form filler
         this.formFiller = new window.FormFiller();
 
@@ -217,77 +224,67 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
     async handleLinkedInExtraction(sendResponse) {
       try {
-        console.log('🔗 Handling LinkedIn extraction...');
+        console.log('🔍 Starting LinkedIn profile extraction...');
 
-        if (!window.location.hostname.includes('linkedin.com')) {
-          throw new Error('Not on LinkedIn - please navigate to your LinkedIn profile first');
-        }
+        const extractedData = await this.extractLinkedInProfile();
+        console.log('🔍 Raw extracted data:', extractedData);
 
-        // Check if LinkedIn extractor is available
-        if (!window.LinkedInExtractor) {
-          // Try to load the LinkedIn extractor
-          await this.loadLinkedInExtractor();
-        }
+        const normalizedData = this.normalizeProfileData(extractedData);
+        console.log('🔄 Normalized data:', normalizedData);
 
-        if (window.LinkedInExtractor) {
-          console.log('🔍 Starting LinkedIn profile extraction...');
-          const extractedData = await window.LinkedInExtractor.extractProfileData();
-
-          console.log('📊 Extracted data:', extractedData);
-
-                    // Save extracted data to storage
-          console.log('🔍 Checking storage availability...');
-          console.log('StorageManager available:', !!StorageManager);
-          console.log('Extracted data available:', !!extractedData);
-
-          if (extractedData && StorageManager) {
-            try {
-              console.log('💾 Saving LinkedIn data to storage...');
-              console.log('Data to save:', extractedData);
-              await StorageManager.saveResumeData(extractedData, 'linkedin');
-              console.log('✅ LinkedIn data saved to storage for cross-tab access');
-
-              // Verify the save worked
-              const savedData = await StorageManager.loadResumeData();
-              console.log('📂 Verification - saved data:', savedData);
-            } catch (saveError) {
-              console.error('❌ Failed to save LinkedIn data to storage:', saveError);
-              // Continue anyway - data is still in memory
-            }
+        // Save to storage with simple fallback
+        try {
+          if (window.storageManager?.saveResumeData) {
+            await window.storageManager.saveResumeData(normalizedData, 'linkedin');
+            console.log('💾 Data saved via storageManager');
           } else {
-            console.warn('⚠️ No extracted data or StorageManager not available');
-            console.log('StorageManager:', StorageManager);
-            console.log('Extracted data:', extractedData);
+            // Direct Chrome storage fallback
+            const dataToSave = {
+              data: normalizedData,
+              source: 'linkedin',
+              timestamp: new Date().toISOString()
+            };
+            await chrome.storage.local.set({
+              resumeData: dataToSave,
+              latestResumeData: dataToSave
+            });
+            console.log('💾 Data saved via direct Chrome storage');
           }
-
-          // Store in current session
-          this.resumeData = extractedData;
-
-          window.NotificationManager?.showNotification(
-            'LinkedIn profile data extracted and saved!',
-            'success'
-          );
-
-          sendResponse({ success: true, data: extractedData });
-        } else {
-          throw new Error('LinkedIn extractor not available');
+        } catch (storageError) {
+          console.error('❌ Storage save failed:', storageError);
+          // Continue anyway - extraction was successful
         }
 
+        sendResponse({ success: true, data: normalizedData });
       } catch (error) {
-        console.error('❌ LinkedIn extraction error:', error);
-
-        window.NotificationManager?.showNotification(
-          `LinkedIn extraction failed: ${error.message}`,
-          'error'
-        );
-
+        console.error('❌ LinkedIn extraction failed:', error);
         sendResponse({ success: false, error: error.message });
       }
     }
 
-        async loadLinkedInExtractor() {
+    async extractLinkedInProfile() {
+      console.log('🔍 Starting LinkedIn profile extraction...');
+
+      // Load LinkedIn extractor if not available
+      await this.loadLinkedInExtractor();
+
+      if (!window.LinkedInExtractor) {
+        throw new Error('LinkedIn extractor not available');
+      }
+
+      try {
+        const profileData = await window.LinkedInExtractor.extractProfileData();
+        console.log('✅ LinkedIn profile extracted:', profileData);
+        return profileData;
+      } catch (error) {
+        console.error('❌ LinkedIn extraction error:', error);
+        throw error;
+      }
+    }
+
+    async loadLinkedInExtractor() {
       return new Promise((resolve, reject) => {
-        // Create a simple LinkedIn extractor inline to avoid module loading issues
+        // Create a comprehensive LinkedIn extractor inline
         if (!window.LinkedInExtractor) {
           class SimpleLinkedInExtractor {
             constructor() {
@@ -302,9 +299,11 @@ if (window.resumeAutoFillContentScriptLoaded) {
               console.log('🔍 Extracting LinkedIn profile data...');
 
               const profileData = {
-                personal: {},
+                personal_info: {},
+                personal: {},       // For UI compatibility
                 summary: '',
                 experience: [],
+                work_experience: [], // For UI compatibility
                 education: [],
                 skills: [],
                 projects: [],
@@ -328,6 +327,10 @@ if (window.resumeAutoFillContentScriptLoaded) {
                 // Extract skills
                 await this.extractSkills(profileData);
 
+                // Ensure data compatibility
+                profileData.personal = profileData.personal_info;
+                profileData.work_experience = profileData.experience;
+
                 console.log('✅ LinkedIn profile data extracted successfully');
                 return profileData;
 
@@ -339,33 +342,76 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
             async extractPersonalInfo(profileData) {
               try {
-                // Name
-                const nameElement = document.querySelector('h1.text-heading-xlarge, h1.pv-text-details__left-panel h1');
+                // Name - try multiple selectors
+                const nameSelectors = [
+                  'h1.text-heading-xlarge',
+                  'h1.pv-text-details__left-panel h1',
+                  '.pv-text-details__left-panel h1',
+                  '.top-card-layout__title h1',
+                  '.profile-photo-edit__preview-container + div h1'
+                ];
+
+                let nameElement = null;
+                for (const selector of nameSelectors) {
+                  nameElement = document.querySelector(selector);
+                  if (nameElement) break;
+                }
+
                 if (nameElement) {
                   const fullName = nameElement.textContent.trim();
-                  profileData.personal.full_name = fullName;
+                  profileData.personal_info.full_name = fullName;
+                  profileData.personal_info.name = fullName;
 
                   const nameParts = fullName.split(' ');
                   if (nameParts.length >= 2) {
-                    profileData.personal.first_name = nameParts[0];
-                    profileData.personal.last_name = nameParts[nameParts.length - 1];
+                    profileData.personal_info.first_name = nameParts[0];
+                    profileData.personal_info.last_name = nameParts[nameParts.length - 1];
                   }
                 }
 
                 // Profile headline
-                const headlineElement = document.querySelector('.text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium');
+                const headlineSelectors = [
+                  '.text-body-medium.break-words',
+                  '.pv-text-details__left-panel .text-body-medium',
+                  '.top-card-layout__headline',
+                  '.pv-top-card--list-bullet .text-body-medium'
+                ];
+
+                let headlineElement = null;
+                for (const selector of headlineSelectors) {
+                  headlineElement = document.querySelector(selector);
+                  if (headlineElement && headlineElement.textContent.trim().length > 10) break;
+                }
+
                 if (headlineElement) {
-                  profileData.personal.headline = headlineElement.textContent.trim();
+                  profileData.personal_info.headline = headlineElement.textContent.trim();
                 }
 
                 // Location
-                const locationElement = document.querySelector('.text-body-small.inline.t-black--light.break-words, .pv-text-details__left-panel .text-body-small');
+                const locationSelectors = [
+                  '.text-body-small.inline.t-black--light.break-words',
+                  '.pv-text-details__left-panel .text-body-small',
+                  '.top-card__subline-item'
+                ];
+
+                let locationElement = null;
+                for (const selector of locationSelectors) {
+                  locationElement = document.querySelector(selector);
+                  if (locationElement && locationElement.textContent.includes(',')) break;
+                }
+
                 if (locationElement) {
-                  profileData.personal.location = locationElement.textContent.trim();
+                  profileData.personal_info.location = locationElement.textContent.trim();
                 }
 
                 // LinkedIn URL
-                profileData.personal.linkedin = window.location.href.split('?')[0];
+                profileData.personal_info.linkedin = window.location.href.split('?')[0];
+
+                // Try to extract email from contact info (if visible)
+                const emailElement = document.querySelector('[href^="mailto:"]');
+                if (emailElement) {
+                  profileData.personal_info.email = emailElement.href.replace('mailto:', '');
+                }
 
                 console.log('✅ Extracted personal info from LinkedIn');
               } catch (error) {
@@ -375,8 +421,21 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
             async extractSummary(profileData) {
               try {
-                // About section
-                const aboutSection = document.querySelector('#about ~ .pv-shared-text-with-see-more, .pv-about-section .pv-about__summary-text');
+                // About section - try multiple selectors
+                const aboutSelectors = [
+                  '#about ~ .pv-shared-text-with-see-more',
+                  '.pv-about-section .pv-about__summary-text',
+                  '[data-section="summary"] .full-width',
+                  '.core-section-container__content .break-words',
+                  '.pv-about__summary-text .full-width'
+                ];
+
+                let aboutSection = null;
+                for (const selector of aboutSelectors) {
+                  aboutSection = document.querySelector(selector);
+                  if (aboutSection) break;
+                }
+
                 if (aboutSection) {
                   // Click "see more" if present
                   const seeMoreButton = aboutSection.querySelector('button[aria-label*="see more"], .inline-show-more-text__button');
@@ -399,7 +458,18 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
             async extractExperience(profileData) {
               try {
-                const experienceSection = document.querySelector('#experience ~ .pvs-list, .pv-profile-section.experience-section');
+                const experienceSelectors = [
+                  '#experience ~ .pvs-list',
+                  '.pv-profile-section.experience-section ul',
+                  '[data-section="experience"] .pvs-list'
+                ];
+
+                let experienceSection = null;
+                for (const selector of experienceSelectors) {
+                  experienceSection = document.querySelector(selector);
+                  if (experienceSection) break;
+                }
+
                 if (!experienceSection) return;
 
                 const experienceItems = experienceSection.querySelectorAll('.pvs-list__paged-list-item, .pv-entity__summary-info');
@@ -411,18 +481,31 @@ if (window.resumeAutoFillContentScriptLoaded) {
                   const titleElement = item.querySelector('.mr1.t-bold span[aria-hidden="true"], .pv-entity__summary-info h3');
                   if (titleElement) {
                     experience.title = titleElement.textContent.trim();
+                    experience.job_title = experience.title;
                   }
 
                   // Company
                   const companyElement = item.querySelector('.t-14.t-normal span[aria-hidden="true"], .pv-entity__secondary-title');
                   if (companyElement) {
                     experience.company = companyElement.textContent.trim();
+                    experience.institution_name = experience.company;
                   }
 
                   // Duration
                   const durationElement = item.querySelector('.t-14.t-normal.t-black--light span[aria-hidden="true"], .pv-entity__bullet-item-v2');
                   if (durationElement) {
                     experience.dates = durationElement.textContent.trim();
+                    experience.duration = experience.dates;
+                  }
+
+                  // Location
+                  const locationElements = item.querySelectorAll('.t-14.t-normal.t-black--light span[aria-hidden="true"]');
+                  for (const locEl of locationElements) {
+                    const text = locEl.textContent.trim();
+                    if (text.includes(',') || text.includes('Remote')) {
+                      experience.location = text;
+                      break;
+                    }
                   }
 
                   if (experience.title || experience.company) {
@@ -438,7 +521,18 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
             async extractEducation(profileData) {
               try {
-                const educationSection = document.querySelector('#education ~ .pvs-list, .pv-profile-section.education-section');
+                const educationSelectors = [
+                  '#education ~ .pvs-list',
+                  '.pv-profile-section.education-section ul',
+                  '[data-section="education"] .pvs-list'
+                ];
+
+                let educationSection = null;
+                for (const selector of educationSelectors) {
+                  educationSection = document.querySelector(selector);
+                  if (educationSection) break;
+                }
+
                 if (!educationSection) return;
 
                 const educationItems = educationSection.querySelectorAll('.pvs-list__paged-list-item, .pv-entity__summary-info');
@@ -450,12 +544,19 @@ if (window.resumeAutoFillContentScriptLoaded) {
                   const schoolElement = item.querySelector('.mr1.t-bold span[aria-hidden="true"], .pv-entity__school-name');
                   if (schoolElement) {
                     education.school = schoolElement.textContent.trim();
+                    education.institution_name = education.school;
                   }
 
                   // Degree
                   const degreeElement = item.querySelector('.t-14.t-normal span[aria-hidden="true"], .pv-entity__degree-name');
                   if (degreeElement) {
                     education.degree = degreeElement.textContent.trim();
+                  }
+
+                  // Year
+                  const yearElement = item.querySelector('.t-14.t-normal.t-black--light span[aria-hidden="true"]');
+                  if (yearElement) {
+                    education.year = yearElement.textContent.trim();
                   }
 
                   if (education.school || education.degree) {
@@ -471,7 +572,18 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
             async extractSkills(profileData) {
               try {
-                const skillsSection = document.querySelector('#skills ~ .pvs-list, .pv-profile-section.skills-section');
+                const skillsSelectors = [
+                  '#skills ~ .pvs-list',
+                  '.pv-profile-section.skills-section ul',
+                  '[data-section="skills"] .pvs-list'
+                ];
+
+                let skillsSection = null;
+                for (const selector of skillsSelectors) {
+                  skillsSection = document.querySelector(selector);
+                  if (skillsSection) break;
+                }
+
                 if (!skillsSection) return;
 
                 const skillElements = skillsSection.querySelectorAll('.mr1.t-bold span[aria-hidden="true"], .pv-skill-category-entity__name');
@@ -498,6 +610,38 @@ if (window.resumeAutoFillContentScriptLoaded) {
       });
     }
 
+    // --------------------------------------------------
+    // Normalise field-names so the popup UI can render them
+    // --------------------------------------------------
+    normalizeProfileData(data) {
+      console.log('🔄 Normalizing profile data...');
+
+      if (!data) return {};
+
+      // Ensure both personal_info and personal exist
+      if (data.personal_info && !data.personal) {
+        data.personal = data.personal_info;
+      } else if (data.personal && !data.personal_info) {
+        data.personal_info = data.personal;
+      }
+
+      // Ensure both experience and work_experience exist
+      if (data.experience && !data.work_experience) {
+        data.work_experience = data.experience;
+      } else if (data.work_experience && !data.experience) {
+        data.experience = data.work_experience;
+      }
+
+      // Ensure arrays exist
+      if (!data.experience) data.experience = [];
+      if (!data.work_experience) data.work_experience = [];
+      if (!data.education) data.education = [];
+      if (!data.skills) data.skills = [];
+
+      console.log('✅ Profile data normalized');
+      return data;
+    }
+
     async handlePageAnalysis(sendResponse) {
       try {
         console.log('🔍 Handling page analysis...');
@@ -520,6 +664,53 @@ if (window.resumeAutoFillContentScriptLoaded) {
       } catch (error) {
         console.error('❌ Page analysis error:', error);
         sendResponse({ success: false, error: error.message });
+      }
+    }
+
+    async saveResumeData(data, source = 'unknown') {
+      console.log('💾 Saving resume data with structure:', {
+        source: source,
+        keys: Object.keys(data),
+        personal_info_keys: Object.keys(data.personal_info || {}),
+        personal_keys: Object.keys(data.personal || {}),
+        experience_count: data.work_experience?.length || 0,
+        education_count: data.education?.length || 0
+      });
+
+      const key = `resumeData_${Date.now()}`;
+      const dataToSave = {
+        ...data,
+        source,
+        timestamp: Date.now()
+      };
+
+      try {
+        await chrome.storage.local.set({ [key]: dataToSave });
+        await chrome.storage.local.set({ latestResumeData: dataToSave });
+        console.log('💾 Data successfully saved to storage with key:', key);
+        return key;
+      } catch (error) {
+        console.error('❌ Failed to save resume data:', error);
+        throw error;
+      }
+    }
+
+    async getLatestResumeData() {
+      try {
+        const result = await chrome.storage.local.get('latestResumeData');
+        const data = result.latestResumeData;
+
+        console.log('📖 Retrieved latest resume data:', {
+          hasData: !!data,
+          keys: data ? Object.keys(data) : [],
+          personal_info_keys: data?.personal_info ? Object.keys(data.personal_info) : [],
+          experience_count: data?.work_experience?.length || 0
+        });
+
+        return data;
+      } catch (error) {
+        console.error('❌ Failed to retrieve resume data:', error);
+        return null;
       }
     }
 
@@ -588,63 +779,32 @@ if (window.resumeAutoFillContentScriptLoaded) {
       }
     };
 
-    window.testCrossTabStorage = () => {
-      console.log('🧪 Testing cross-tab storage...');
-
-      // Test direct Chrome storage
-      chrome.storage.local.get(['resumeData'], (result) => {
-        console.log('📂 Direct Chrome storage test:', result);
-      });
-
-      // Test background script
-      chrome.runtime.sendMessage({action: 'getStorageInfo'}, (response) => {
-        console.log('📂 Background storage info:', response);
-      });
-
-      // Test localStorage
-      const localData = localStorage.getItem('resumeData');
-      console.log('📂 localStorage test:', localData ? JSON.parse(localData) : 'No data');
-
-      // Test StorageManager
-      if (StorageManager) {
-        StorageManager.loadResumeData().then((data) => {
-          console.log('📂 StorageManager test:', data);
-        }).catch((error) => {
-          console.error('❌ StorageManager test failed:', error);
-        });
-      } else {
-        console.error('❌ StorageManager not available');
+    window.testCrossTabStorage = async function() {
+      try {
+        console.log('🧪 Testing cross-tab storage...');
+        const testData = { test: 'data', timestamp: Date.now() };
+        await window.storageManager.saveResumeData(testData, 'test');
+        const retrieved = await window.storageManager.getLatestResumeData();
+        console.log('🧪 Storage test - saved:', testData, 'retrieved:', retrieved);
+        return retrieved;
+      } catch (error) {
+        console.error('🧪 Storage test failed:', error);
       }
     };
 
-        window.testLinkedInExtraction = () => {
-      console.log('🧪 Testing LinkedIn extraction...');
-      if (window.LinkedInExtractor) {
-        console.log('✅ LinkedInExtractor is available');
-        window.LinkedInExtractor.extractProfileData().then((data) => {
-          console.log('📊 Extracted data:', data);
-          if (data && StorageManager) {
-            console.log('💾 Attempting to save data...');
-            StorageManager.saveResumeData(data, 'linkedin').then(() => {
-              console.log('✅ Data saved successfully');
+    window.testLinkedInExtraction = async function() {
+      try {
+        console.log('🧪 Testing LinkedIn extraction...');
+        const contentManager = new ContentManager();
+        const extractedData = await contentManager.extractLinkedInProfile();
+        console.log('🧪 Raw extracted data:', extractedData);
 
-              // Verify the save
-              StorageManager.loadResumeData().then((savedData) => {
-                console.log('📂 Verification - loaded data:', savedData);
-              });
-            }).catch((error) => {
-              console.error('❌ Failed to save data:', error);
-            });
-          } else {
-            console.error('❌ No data or StorageManager not available');
-            console.log('Data:', data);
-            console.log('StorageManager:', StorageManager);
-          }
-        }).catch((error) => {
-          console.error('❌ Extraction failed:', error);
-        });
-      } else {
-        console.error('❌ LinkedInExtractor not available');
+        const normalizedData = contentManager.normalizeProfileData(extractedData);
+        console.log('🧪 Normalized data:', normalizedData);
+
+        return normalizedData;
+      } catch (error) {
+        console.error('🧪 Test extraction failed:', error);
       }
     };
 

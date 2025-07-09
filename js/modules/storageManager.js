@@ -20,6 +20,7 @@ export class StorageManager {
       // Save both data and metadata
       chrome.storage.local.set({
         [this.storageKey]: storageData,
+        'latestResumeData': storageData, // Add this for compatibility
         'lastUpdated': timestamp
       }, () => {
         if (chrome.runtime.lastError) {
@@ -58,6 +59,32 @@ export class StorageManager {
     });
   }
 
+  async getLatestResumeData() {
+    console.log('📖 Loading latest resume data...');
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get(['resumeData', 'latestResumeData', 'lastUpdated'], (result) => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Failed to load resume data:', chrome.runtime.lastError);
+          reject(chrome.runtime.lastError);
+        } else {
+          // Try latestResumeData first, then resumeData
+          const storageData = result.latestResumeData || result.resumeData || null;
+
+          if (storageData && storageData.data) {
+            console.log(`📋 Loaded resume data from ${storageData.source} (updated: ${storageData.timestamp})`);
+            resolve(storageData.data); // Return just the data part
+          } else if (storageData) {
+            console.log('📋 Loaded resume data (no metadata available)');
+            resolve(storageData); // Legacy support
+          } else {
+            console.log('📋 No resume data found');
+            resolve(null);
+          }
+        }
+      });
+    });
+  }
+
   async getResumeMetadata() {
     return new Promise((resolve, reject) => {
       chrome.storage.local.get([this.storageKey, 'lastUpdated'], (result) => {
@@ -76,11 +103,25 @@ export class StorageManager {
 
   async clearResumeData() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.remove([this.storageKey, 'lastUpdated'], () => {
+      chrome.storage.local.remove([this.storageKey, 'latestResumeData', 'lastUpdated'], () => {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
           console.log('🗑️ Resume data cleared');
+          resolve();
+        }
+      });
+    });
+  }
+
+  async clearAllData() {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.clear(() => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Failed to clear all data:', chrome.runtime.lastError);
+          reject(chrome.runtime.lastError);
+        } else {
+          console.log('🗑️ All storage data cleared');
           resolve();
         }
       });

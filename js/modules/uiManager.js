@@ -71,29 +71,30 @@ export class UiManager {
     // Generate preview HTML
     let previewHtml = '<div class="data-section">';
 
-    // Personal Information
-    if (data.personal_info) {
+    // Personal Information - handle both data structures
+    const personalInfo = data.personal_info || data.personal || {};
+    if (personalInfo && Object.keys(personalInfo).length > 0) {
       previewHtml += '<div class="data-group">';
       previewHtml += '<h4>👤 Personal Information</h4>';
       previewHtml += '<div class="data-items">';
 
-      if (data.personal_info.full_name) {
-        previewHtml += `<div class="data-item"><strong>Name:</strong> ${data.personal_info.full_name}</div>`;
+      if (personalInfo.full_name) {
+        previewHtml += `<div class="data-item"><strong>Name:</strong> ${personalInfo.full_name}</div>`;
       }
-      if (data.personal_info.email) {
-        previewHtml += `<div class="data-item"><strong>Email:</strong> ${data.personal_info.email}</div>`;
+      if (personalInfo.email) {
+        previewHtml += `<div class="data-item"><strong>Email:</strong> ${personalInfo.email}</div>`;
       }
-      if (data.personal_info.phone) {
-        previewHtml += `<div class="data-item"><strong>Phone:</strong> ${data.personal_info.phone}</div>`;
+      if (personalInfo.phone) {
+        previewHtml += `<div class="data-item"><strong>Phone:</strong> ${personalInfo.phone}</div>`;
       }
-      if (data.personal_info.location) {
-        previewHtml += `<div class="data-item"><strong>Location:</strong> ${data.personal_info.location}</div>`;
+      if (personalInfo.location) {
+        previewHtml += `<div class="data-item"><strong>Location:</strong> ${personalInfo.location}</div>`;
       }
-      if (data.personal_info.headline) {
-        previewHtml += `<div class="data-item"><strong>Headline:</strong> ${data.personal_info.headline}</div>`;
+      if (personalInfo.headline) {
+        previewHtml += `<div class="data-item"><strong>Headline:</strong> ${personalInfo.headline}</div>`;
       }
-      if (data.personal_info.linkedin) {
-        previewHtml += `<div class="data-item"><strong>LinkedIn:</strong> <a href="${data.personal_info.linkedin}" target="_blank" style="color: #fff; text-decoration: underline;">Profile</a></div>`;
+      if (personalInfo.linkedin) {
+        previewHtml += `<div class="data-item"><strong>LinkedIn:</strong> <a href="${personalInfo.linkedin}" target="_blank" style="color: #fff; text-decoration: underline;">Profile</a></div>`;
       }
 
       previewHtml += '</div></div>';
@@ -108,37 +109,45 @@ export class UiManager {
       previewHtml += '</div></div>';
     }
 
-    // Experience
-    if (data.work_experience && data.work_experience.length > 0) {
+    // Experience - handle both work_experience and experience arrays
+    const experience = data.work_experience || data.experience || [];
+    if (experience && experience.length > 0) {
       previewHtml += '<div class="data-group">';
       previewHtml += '<h4>💼 Work Experience</h4>';
       previewHtml += '<div class="data-items">';
 
-      data.work_experience.slice(0, 3).forEach((job, index) => {
+      experience.slice(0, 3).forEach((job, index) => {
         previewHtml += `<div class="data-item">`;
-        previewHtml += `<strong>${job.title || 'Position'}</strong>`;
-        if (job.company) previewHtml += ` at ${job.company}`;
-        if (job.duration) previewHtml += ` (${job.duration})`;
+        previewHtml += `<strong>${job.title || job.position_title || 'Position'}</strong>`;
+        if (job.company || job.institution_name) {
+          previewHtml += ` at ${job.company || job.institution_name}`;
+        }
+        if (job.duration || job.dates) {
+          previewHtml += ` (${job.duration || job.dates})`;
+        }
         previewHtml += `</div>`;
       });
 
-      if (data.work_experience.length > 3) {
-        previewHtml += `<div class="data-item"><em>... and ${data.work_experience.length - 3} more</em></div>`;
+      if (experience.length > 3) {
+        previewHtml += `<div class="data-item"><em>... and ${experience.length - 3} more</em></div>`;
       }
 
       previewHtml += '</div></div>';
     }
 
-    // Education
-    if (data.education && data.education.length > 0) {
+    // Education - handle both education arrays
+    const education = data.education || [];
+    if (education && education.length > 0) {
       previewHtml += '<div class="data-group">';
       previewHtml += '<h4>🎓 Education</h4>';
       previewHtml += '<div class="data-items">';
 
-      data.education.forEach((edu, index) => {
+      education.forEach((edu, index) => {
         previewHtml += `<div class="data-item">`;
         if (edu.degree) previewHtml += `<strong>${edu.degree}</strong> `;
-        if (edu.school) previewHtml += `at ${edu.school}`;
+        if (edu.school || edu.institution_name) {
+          previewHtml += `at ${edu.school || edu.institution_name}`;
+        }
         if (edu.year) previewHtml += ` (${edu.year})`;
         previewHtml += `</div>`;
       });

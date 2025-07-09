@@ -10,1018 +10,299 @@ class PopupController {
     this.apiClient = new ApiClient();
     this.storageManager = new StorageManager();
     this.uiManager = new UiManager();
-    this.formFiller = new FormFiller();
 
     this.currentFile = null;
     this.resumeData = null;
-    this.isMonitoring = false;
+    this.isInitialized = false;
+    this.fileHandler = null; // Add this
 
     this.initialize();
   }
 
   async initialize() {
+    if (this.isInitialized) return;
+
+    console.log('🔧 Initializing popup controller...');
+
     try {
-      // Load existing resume data and metadata
-      this.resumeData = await this.storageManager.getResumeData();
-      const storageInfo = await this.storageManager.getStorageInfo();
-      console.log('[Popup] Loaded resume data from storage:', this.resumeData);
-      console.log('[Popup] Storage info:', storageInfo);
-
-      if (this.resumeData && storageInfo && storageInfo.hasData) {
-        this.uiManager.showResumeData(this.resumeData);
-        this.uiManager.hideNoDataMessage && this.uiManager.hideNoDataMessage();
-        this.uiManager.hideDataSourceSelection();
-        // Show storage info
-        const timeSince = this.getTimeSince(storageInfo.lastUpdated);
-        this.uiManager.showStatus(
-          `Using stored resume data from ${storageInfo.source} (${timeSince})`,
-          'info'
-        );
-      } else {
-        this.uiManager.showNoDataMessage && this.uiManager.showNoDataMessage();
-        this.uiManager.showDataSourceSelection();
-      }
-
-      // Setup file handler (initially for upload area)
-      this.setupFileHandler();
-
-      // Setup event listeners
+      // Set up event listeners
       this.setupEventListeners();
 
-      // Wire up refresh button
-      const refreshBtn = document.getElementById('refreshDataBtn');
-      if (refreshBtn) {
-        refreshBtn.onclick = async () => {
-          console.log('[Popup] Refresh Data button clicked');
-          try {
-            const data = await this.storageManager.getResumeData();
-            console.log('[Popup] Refreshed data from storage:', data);
-            if (data) {
-              this.uiManager.showResumeData(data);
-              this.uiManager.hideNoDataMessage && this.uiManager.hideNoDataMessage();
-            } else {
-              this.uiManager.showNoDataMessage && this.uiManager.showNoDataMessage();
-            }
-          } catch (err) {
-            this.uiManager.showStatus('Failed to refresh data: ' + err.message, 'error');
-            console.error('[Popup] Failed to refresh data:', err);
-          }
-        };
-      }
+      // Load any existing resume data
+      await this.loadExistingData();
 
-      // Wire up show data button
-      const showDataBtn = document.getElementById('showDataBtn');
-      if (showDataBtn) {
-        showDataBtn.onclick = async () => {
-          console.log('[Popup] Show Data button clicked');
-          await this.handleShowExtractedData();
-        };
-      }
+      this.isInitialized = true;
+      console.log('✅ Popup controller initialized successfully');
 
-      // Wire up modal close functionality
-      const dataModal = document.getElementById('dataModal');
-      const closeDataModal = document.getElementById('closeDataModal');
-      if (dataModal && closeDataModal) {
-        closeDataModal.onclick = () => {
-          dataModal.style.display = 'none';
-        };
-
-        // Close modal when clicking outside
-        dataModal.onclick = (e) => {
-          if (e.target === dataModal) {
-            dataModal.style.display = 'none';
-          }
-        };
-      }
-
-      // Check content script readiness (don't fail initialization if this fails)
-      try {
-        await this.checkContentScriptStatus();
-      } catch (error) {
-        console.warn('⚠️ Content script status check failed:', error.message);
-        // Don't show error to user - just log it
-      }
-
-      console.log('✅ Enhanced popup initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize popup:', error);
-      this.uiManager.showStatus('Failed to initialize extension', 'error');
-      this.uiManager.showNoDataMessage && this.uiManager.showNoDataMessage();
-    }
-  }
-
-  // Helper method to check if current tab is on a supported site
-  async isOnSupportedSite() {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-      if (!tab || !tab.url) {
-        return false;
-      }
-
-      // Check if we're on a chrome:// or chrome-extension:// page
-      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-        return false;
-      }
-
-      // Check if we're on a supported site
-      const supportedSites = [
-        'linkedin.com',
-        'indeed.com',
-        'glassdoor.com',
-        'monster.com',
-        'ziprecruiter.com',
-        'workday.com',
-        'greenhouse.io',
-        'lever.co',
-        'wantedly.com',
-        'gaijinpot.com'
-      ];
-
-      return supportedSites.some(site => tab.url.includes(site));
-    } catch (error) {
-      console.error('❌ Failed to check if on supported site:', error);
-      return false;
-    }
-  }
-
-  // Helper method to calculate time since last update
-  getTimeSince(timestamp) {
-    if (!timestamp || timestamp === 'Never') return 'unknown time';
-
-    try {
-      const now = new Date();
-      const past = new Date(timestamp);
-      const diffMs = now - past;
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMins / 60);
-      const diffDays = Math.floor(diffHours / 24);
-
-      if (diffMins < 1) return 'just now';
-      if (diffMins < 60) return `${diffMins} minutes ago`;
-      if (diffHours < 24) return `${diffHours} hours ago`;
-      if (diffDays === 1) return 'yesterday';
-      if (diffDays < 7) return `${diffDays} days ago`;
-      return new Date(timestamp).toLocaleDateString();
-    } catch (error) {
-      return 'unknown time';
-    }
-  }
-
-  setupFileHandler() {
-    const uploadArea = document.getElementById('upload-area');
-    const resumeFile = document.getElementById('resumeFile');
-
-    if (uploadArea && resumeFile) {
-      this.fileHandler = new FileHandler(
-        uploadArea,
-        resumeFile,
-        (file, errors) => this.handleFileSelected(file, errors)
-      );
-
-      // Test file handler setup
-      this.fileHandler.test();
-      console.log('✅ File handler setup complete');
-    } else {
-      console.warn('⚠️ Upload area or file input not found');
-    }
-  }
-
-  async checkContentScriptStatus() {
-    try {
-      // Get current tab
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-      if (!tab || !tab.url) {
-        this.uiManager.showStatus('No active tab found', 'warning');
-        return;
-      }
-
-      // Check if we're on a chrome:// or chrome-extension:// page
-      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-        this.uiManager.showStatus('Navigate to a job site to enable form filling', 'info');
-        return;
-      }
-
-      // Check if we're on a supported site
-      const supportedSites = [
-        'linkedin.com',
-        'indeed.com',
-        'glassdoor.com',
-        'monster.com',
-        'ziprecruiter.com',
-        'workday.com',
-        'greenhouse.io',
-        'lever.co',
-        'wantedly.com',
-        'gaijinpot.com'
-      ];
-
-      const isSupportedSite = supportedSites.some(site => tab.url.includes(site));
-
-      if (!isSupportedSite) {
-        this.uiManager.showStatus('Navigate to a supported job site to enable form filling', 'info');
-        return;
-      }
-
-      // Try to communicate with content script (non-blocking)
-      try {
-        const info = await this.formFiller.getContentScriptInfo();
-        if (info && info.ready) {
-          console.log('🔗 Content script ready with features:', info.features);
-          this.uiManager.showStatus('Extension ready for intelligent form filling', 'success');
-        }
-      } catch (error) {
-        // Content script not ready is expected on many pages - don't show as error
-        console.log('ℹ️ Content script not available (expected on non-supported sites)');
-
-        // Only show status if we're on a supported site where content scripts should work
-        if (isSupportedSite) {
-          console.log('⚠️ Content script should be available but isn\'t responding - page may need refresh');
-          // Don't show error message to user - just log it
-        }
-      }
-    } catch (error) {
-      console.error('❌ Failed to check content script status:', error);
-      this.uiManager.showStatus('Unable to check extension status', 'error');
+      this.showMessage('Failed to initialize extension', 'error');
     }
   }
 
   setupEventListeners() {
-    // Data source selection
+    // Initialize FileHandler with proper DOM elements after DOM is ready
+    const uploadSection = document.getElementById('upload-section');
+    const fileInput = document.getElementById('resumeFile');
+
+    if (uploadSection && fileInput) {
+      this.fileHandler = new FileHandler(uploadSection, fileInput, (file) => {
+        // Handle file selection
+        this.handleFileUpload({ target: { files: [file] } });
+      });
+      console.log('✅ FileHandler initialized with DOM elements');
+    } else {
+      console.log('ℹ️ Upload elements not found - file upload will be handled by buttons');
+    }
+
+    // LinkedIn extraction button
+    const linkedinBtn = document.getElementById('linkedinExtractBtn');
+    if (linkedinBtn) {
+      linkedinBtn.addEventListener('click', () => this.extractLinkedInData());
+    }
+
+    // File upload button - manual fallback
+    const uploadBtn = document.getElementById('uploadBtn');
+    const resumeFile = document.getElementById('resumeFile');
+
+    if (uploadBtn && resumeFile) {
+      uploadBtn.addEventListener('click', () => resumeFile.click());
+      resumeFile.addEventListener('change', (e) => this.handleFileUpload(e));
+    }
+
+    // Browse button in upload area
+    const browseBtn = document.getElementById('browse-btn');
+    if (browseBtn && resumeFile) {
+      browseBtn.addEventListener('click', () => resumeFile.click());
+    }
+
+    // Form fill button
+    const fillFormBtn = document.getElementById('fillFormBtn');
+    if (fillFormBtn) {
+      fillFormBtn.addEventListener('click', () => this.fillCurrentForm());
+    }
+
+    // Clear data button
+    const clearDataBtn = document.getElementById('clearDataBtn');
+    if (clearDataBtn) {
+      clearDataBtn.addEventListener('click', () => this.clearAllData());
+    }
+
+    // Page analysis button
+    const analyzePageBtn = document.getElementById('analyzePageBtn');
+    if (analyzePageBtn) {
+      analyzePageBtn.addEventListener('click', () => this.analyzeCurrentPage());
+    }
+
+    // Back buttons for navigation
+    const backToSelection = document.getElementById('back-to-selection');
+    const backToSelectionLinkedin = document.getElementById('back-to-selection-linkedin');
+
+    if (backToSelection) {
+      backToSelection.addEventListener('click', () => this.showDataSourceSelection());
+    }
+
+    if (backToSelectionLinkedin) {
+      backToSelectionLinkedin.addEventListener('click', () => this.showDataSourceSelection());
+    }
+
+    // Data source option buttons
     const resumeOption = document.getElementById('resume-option');
     const linkedinOption = document.getElementById('linkedin-option');
 
     if (resumeOption) {
-      resumeOption.addEventListener('click', () => {
-        this.showResumeUpload();
-      });
+      resumeOption.addEventListener('click', () => this.showUploadSection());
     }
 
     if (linkedinOption) {
-      linkedinOption.addEventListener('click', () => {
-        this.showLinkedInExtract();
-      });
+      linkedinOption.addEventListener('click', () => this.showLinkedInSection());
     }
+  }
 
-    // Back buttons
-    const backToSelection = document.getElementById('back-to-selection');
-    const backToSelectionLinkedIn = document.getElementById('back-to-selection-linkedin');
-
-    if (backToSelection) {
-      backToSelection.addEventListener('click', () => {
-        this.showDataSourceSelection();
-      });
+  async loadExistingData() {
+    try {
+      const data = await this.storageManager.getLatestResumeData();
+      if (data) {
+        this.resumeData = data;
+        this.uiManager.showResumeData(data);
+        console.log('📂 Loaded existing resume data');
+      } else {
+        this.uiManager.showNoDataMessage();
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not load existing data:', error);
+      this.uiManager.showNoDataMessage();
     }
+  }
 
-    if (backToSelectionLinkedIn) {
-      backToSelectionLinkedIn.addEventListener('click', () => {
-        this.showDataSourceSelection();
+  async extractLinkedInData() {
+    try {
+      this.showMessage('Extracting LinkedIn profile data...', 'info');
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+      if (!tab.url.includes('linkedin.com')) {
+        this.showMessage('Please navigate to a LinkedIn profile page', 'error');
+        return;
+      }
+
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        action: 'extractLinkedIn'
       });
-    }
 
-    // Browse button (explicit file selection)
-    const browseBtn = document.getElementById('browse-btn');
-    if (browseBtn) {
-      browseBtn.addEventListener('click', () => {
-        const fileInput = document.getElementById('resumeFile');
-        if (fileInput) {
-          fileInput.click();
+      console.log('🎯 Full response from content script:', response);
+      console.log('📊 Response data structure:', {
+        hasData: !!response?.data,
+        success: response?.success,
+        dataKeys: Object.keys(response?.data || {}),
+        personalInfo: response?.data?.personal_info,
+        personalInfoAlt: response?.data?.personal,
+        experienceCount: response?.data?.work_experience?.length || 0
+      });
+
+      if (response && response.success && response.data) {
+        console.log('✅ LinkedIn data extracted successfully');
+
+        // Ensure data compatibility
+        if (response.data.personal_info && !response.data.personal) {
+          response.data.personal = response.data.personal_info;
         }
-      });
+        if (response.data.work_experience && !response.data.experience) {
+          response.data.experience = response.data.work_experience;
+        }
+
+        await this.storageManager.saveResumeData(response.data, 'linkedin');
+        this.resumeData = response.data;
+        this.uiManager.showResumeData(response.data);
+        this.showMessage('LinkedIn profile data extracted successfully!', 'success');
+      } else {
+        const errorMsg = response?.error || 'Failed to extract LinkedIn data';
+        console.error('❌ LinkedIn extraction failed:', errorMsg);
+        this.showMessage(errorMsg, 'error');
+      }
+    } catch (error) {
+      console.error('❌ Error during LinkedIn extraction:', error);
+      this.showMessage('Error extracting LinkedIn data: ' + error.message, 'error');
     }
+  }
 
-    // Upload button
-    const uploadBtn = document.getElementById('uploadBtn');
-    if (uploadBtn) {
-      uploadBtn.addEventListener('click', () => {
-        this.handleUpload();
-      });
+  async handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    this.showMessage('Processing file...', 'info');
+
+    try {
+      const resumeData = await this.fileHandler.processFile(file);
+
+      if (resumeData) {
+        await this.storageManager.saveResumeData(resumeData, 'upload');
+        this.resumeData = resumeData;
+        this.uiManager.showResumeData(resumeData);
+        this.uiManager.updateUploadButton(file.name);
+        this.showMessage('Resume uploaded and processed successfully!', 'success');
+      } else {
+        this.showMessage('Failed to extract data from file', 'error');
+      }
+    } catch (error) {
+      console.error('❌ File processing error:', error);
+      this.showMessage('Error processing file: ' + error.message, 'error');
     }
+  }
 
-    // LinkedIn extract button
-    const linkedinExtractBtn = document.getElementById('linkedinExtractBtn');
-    if (linkedinExtractBtn) {
-      linkedinExtractBtn.addEventListener('click', () => {
-        this.handleLinkedInExtract();
+  async fillCurrentForm() {
+    try {
+      if (!this.resumeData) {
+        // Try to load from storage
+        this.resumeData = await this.storageManager.getLatestResumeData();
+      }
+
+      if (!this.resumeData) {
+        this.showMessage('No resume data available. Please extract from LinkedIn or upload a file first.', 'error');
+        return;
+      }
+
+      this.showMessage('Filling form...', 'info');
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        action: 'fillForm',
+        data: this.resumeData
       });
-    }
 
-    // Resume data section buttons (if they exist)
-    const clearDataBtn = document.getElementById('clearDataBtn');
-    if (clearDataBtn) {
-      clearDataBtn.addEventListener('click', () => {
-        this.handleClearData();
+      if (response && response.success) {
+        this.showMessage(`Form filled successfully! ${response.result.fieldsCount} fields filled.`, 'success');
+      } else {
+        this.showMessage(response?.error || 'Failed to fill form', 'error');
+      }
+    } catch (error) {
+      console.error('❌ Form filling error:', error);
+      this.showMessage('Error filling form: ' + error.message, 'error');
+    }
+  }
+
+  async analyzeCurrentPage() {
+    try {
+      this.showMessage('Analyzing page...', 'info');
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        action: 'analyzePageStructure'
       });
+
+      if (response && response.success) {
+        this.uiManager.showPageAnalysis(response.analysis, response.recommendations);
+        this.showMessage('Page analyzed successfully!', 'success');
+      } else {
+        this.showMessage(response?.error || 'Failed to analyze page', 'error');
+      }
+    } catch (error) {
+      console.error('❌ Page analysis error:', error);
+      this.showMessage('Error analyzing page: ' + error.message, 'error');
     }
+  }
 
-    const fillFormBtn = document.getElementById('fillFormBtn');
-    if (fillFormBtn) {
-      fillFormBtn.addEventListener('click', () => {
-        this.handleAutoFill();
-      });
+  async clearAllData() {
+    try {
+      await this.storageManager.clearAllData();
+      this.resumeData = null;
+      this.uiManager.hideResumeData();
+      this.uiManager.showNoDataMessage();
+      this.uiManager.updateUploadButton(null);
+      this.showMessage('All data cleared successfully!', 'success');
+    } catch (error) {
+      console.error('❌ Error clearing data:', error);
+      this.showMessage('Error clearing data: ' + error.message, 'error');
     }
+  }
 
-    const analyzePageBtn = document.getElementById('analyzePageBtn');
-    if (analyzePageBtn) {
-      analyzePageBtn.addEventListener('click', () => {
-        this.handleIntelligentPageAnalysis();
-      });
-    }
-
-    const copyPasteHelperBtn = document.getElementById('copyPasteHelperBtn');
-    if (copyPasteHelperBtn) {
-      copyPasteHelperBtn.addEventListener('click', () => {
-        this.handleCopyPasteHelper();
-      });
-    }
-
-    // Set up UI manager callbacks for enhanced features
-    this.uiManager.setTryIntelligentButtonsCallback(() => {
-      return this.handleTryIntelligentButtons();
-    });
-
-    // Legacy callback for backward compatibility
-    this.uiManager.setTryClickCallback(() => {
-      return this.handleTryIntelligentButtons();
-    });
-
-    // Storage action buttons
-    const useStoredDataBtn = document.getElementById('use-stored-data-btn');
-    if (useStoredDataBtn) {
-      useStoredDataBtn.addEventListener('click', async () => {
-        await this.handleUseStoredData();
-      });
-    }
-
-    const replaceDataBtn = document.getElementById('replace-data-btn');
-    if (replaceDataBtn) {
-      replaceDataBtn.addEventListener('click', () => {
-        this.handleReplaceData();
-      });
-    }
+  showMessage(message, type = 'info') {
+    this.uiManager.showStatus(message, type);
   }
 
   showDataSourceSelection() {
     document.getElementById('data-source-selection').style.display = 'block';
     document.getElementById('upload-section').style.display = 'none';
     document.getElementById('linkedin-section').style.display = 'none';
-    this.uiManager.hideStatus();
   }
 
-  showResumeUpload() {
+  showUploadSection() {
     document.getElementById('data-source-selection').style.display = 'none';
     document.getElementById('upload-section').style.display = 'block';
     document.getElementById('linkedin-section').style.display = 'none';
-
-    // Setup file handler for the upload area
-    this.setupFileHandler();
-    this.uiManager.showStatus('📄 Select or drag & drop your PDF resume', 'info');
   }
 
-  showLinkedInExtract() {
+  showLinkedInSection() {
     document.getElementById('data-source-selection').style.display = 'none';
     document.getElementById('upload-section').style.display = 'none';
     document.getElementById('linkedin-section').style.display = 'block';
-    this.uiManager.showStatus('💼 Follow the steps to extract from LinkedIn', 'info');
   }
-
-    handleFileSelected(file, errors = null) {
-    // Handle validation errors from FileHandler
-    if (errors && errors.length > 0) {
-      this.uiManager.showStatus(errors[0], 'error');
-      this.currentFile = null;
-      this.hideUploadButton();
-      return;
-    }
-
-    if (!file) {
-      this.uiManager.showStatus('No file selected', 'warning');
-      this.currentFile = null;
-      this.hideUploadButton();
-      return;
-    }
-
-    this.currentFile = file;
-
-    // Update UI
-    const fileInfo = this.fileHandler.getFileInfo(file);
-    this.showUploadButton(fileInfo.name);
-    this.uiManager.showStatus(`✅ Selected: ${fileInfo.name} (${fileInfo.sizeFormatted})`, 'success');
-
-    console.log('✅ File selected successfully:', fileInfo);
-  }
-
-  showUploadButton(fileName) {
-    const uploadBtn = document.getElementById('uploadBtn');
-    if (uploadBtn) {
-      uploadBtn.style.display = 'block';
-      uploadBtn.textContent = `📤 Upload "${fileName}"`;
-    }
-  }
-
-  hideUploadButton() {
-    const uploadBtn = document.getElementById('uploadBtn');
-    if (uploadBtn) {
-      uploadBtn.style.display = 'none';
-    }
-  }
-
-  async handleUpload() {
-    if (!this.currentFile) {
-      this.uiManager.showStatus('Please select a PDF file first', 'warning');
-      return;
-    }
-
-    try {
-      this.uiManager.showLoading(true);
-      this.uiManager.hideStatus();
-
-      // Upload and parse resume
-      const parsedData = await this.apiClient.uploadResume(this.currentFile);
-
-      // Save to storage with source metadata
-      await this.storageManager.saveResumeData(parsedData, 'pdf');
-      this.resumeData = parsedData;
-
-      // Update UI
-      this.uiManager.showResumeData(parsedData);
-      this.uiManager.hideDataSourceSelection();
-      this.hideStorageInfo();
-      this.uiManager.showStatus('Resume parsed and saved successfully! 🎉', 'success');
-
-      // Reset file handler
-      this.fileHandler.reset();
-      this.hideUploadButton();
-
-    } catch (error) {
-      this.uiManager.showStatus(error.message, 'error');
-    } finally {
-      this.uiManager.showLoading(false);
-    }
-  }
-
-  async handleClearData() {
-    try {
-      await this.storageManager.clearResumeData();
-      this.resumeData = null;
-      this.uiManager.hideResumeData();
-      this.hideStorageInfo();
-      this.showDataSourceSelection();
-      this.uiManager.showStatus('Resume data cleared successfully!', 'success');
-    } catch (error) {
-      this.uiManager.showStatus('Failed to clear data: ' + error.message, 'error');
-    }
-  }
-
-  async handleAutoFill() {
-    try {
-      // Check if we're on a supported site
-      const isSupported = await this.isOnSupportedSite();
-      if (!isSupported) {
-        this.uiManager.showStatus('Navigate to a supported job site to enable form filling', 'info');
-        return;
-      }
-
-      this.uiManager.showStatus('Intelligently filling form...', 'info');
-
-      let result;
-      if (this.resumeData) {
-        // Use in-memory data
-        result = await this.formFiller.fillForm(this.resumeData);
-      } else {
-        // Load from storage and fill
-        result = await this.formFiller.fillFormFromStorage();
-
-        // Also load into memory for future use
-        this.resumeData = await this.storageManager.getResumeData();
-      }
-
-      this.uiManager.showStatus(result.message, 'success');
-    } catch (error) {
-      console.error('❌ Auto-fill failed:', error);
-      this.uiManager.showStatus('Auto-fill failed: ' + error.message, 'error');
-    }
-  }
-
-  // Enhanced page analysis with dynamic intelligence
-  async handleIntelligentPageAnalysis() {
-    try {
-      this.uiManager.showStatus('🧠 Starting intelligent page analysis...', 'info');
-      this.uiManager.hidePageAnalysis();
-
-      // Show loading state
-      this.uiManager.showLoading(true);
-
-      // Perform enhanced analysis
-      const result = await this.formFiller.analyzePageStructure();
-
-      // Start monitoring if not already active
-      if (!this.isMonitoring) {
-        try {
-          await this.formFiller.startMonitoring();
-          this.isMonitoring = true;
-        } catch (monitorError) {
-          console.warn('Failed to start monitoring:', monitorError);
-        }
-      }
-
-      // Display results with enhanced UI
-      this.uiManager.showPageAnalysis(
-        result.analysis,
-        result.recommendations,
-        this.isMonitoring
-      );
-
-      // Show success message with details
-      const stats = result.analysis.staticAnalysis;
-      const buttonCount = result.analysis.interactiveElements?.buttons?.length || 0;
-      const recCount = result.recommendations?.length || 0;
-
-      let message = `🎉 Analysis complete! Found ${stats.forms.length} forms, ${stats.fields.length} fields, ${buttonCount} buttons`;
-      if (recCount > 0) {
-        message += `, ${recCount} intelligent recommendations`;
-      }
-
-      this.uiManager.showStatus(message, 'success');
-
-    } catch (error) {
-      this.uiManager.showStatus('Intelligent analysis failed: ' + error.message, 'error');
-    } finally {
-      this.uiManager.showLoading(false);
-    }
-  }
-
-  // Enhanced intelligent button interaction
-  async handleTryIntelligentButtons() {
-    try {
-      this.uiManager.showStatus('🧠 Trying intelligent button interactions...', 'info');
-
-      const result = await this.formFiller.tryIntelligentButtons();
-
-      if (result.success && result.results) {
-        const { attempted, successful, newFields } = result.results;
-
-        let message = `🎯 Tried ${attempted} intelligent buttons`;
-        if (successful > 0) {
-          message += `, ${successful} successful`;
-        }
-        if (newFields > 0) {
-          message += `, revealed ${newFields} new fields!`;
-        }
-
-        this.uiManager.showStatus(message, newFields > 0 ? 'success' : 'info');
-
-        // If new fields were revealed, automatically re-analyze
-        if (newFields > 0) {
-          setTimeout(() => {
-            this.handleIntelligentPageAnalysis();
-          }, 1500);
-        }
-      } else {
-        this.uiManager.showStatus(result.message || 'No high-value buttons found', 'info');
-      }
-
-    } catch (error) {
-      this.uiManager.showStatus('Intelligent button interaction failed: ' + error.message, 'error');
-    }
-  }
-
-  async handleCopyPasteHelper() {
-    // Try to load resume data if not available in memory
-    if (!this.resumeData) {
-      console.log('📂 No resume data in memory, attempting to load from storage...');
-      this.resumeData = await this.storageManager.getResumeData();
-
-      if (!this.resumeData) {
-        this.uiManager.showStatus('No resume data found. Please upload a resume or extract from LinkedIn first.', 'warning');
-        return;
-      }
-    }
-
-    try {
-      this.uiManager.showCopyPasteHelper(this.resumeData);
-      this.uiManager.showStatus('📋 Copy & paste helper ready! Click any section to copy.', 'success');
-    } catch (error) {
-      this.uiManager.showStatus('Failed to show copy helper: ' + error.message, 'error');
-    }
-  }
-
-  // Monitor page changes and provide smart notifications
-  async startSmartMonitoring() {
-    if (this.isMonitoring) return;
-
-    try {
-      await this.formFiller.startMonitoring();
-      this.isMonitoring = true;
-      this.uiManager.showStatus('📡 Smart monitoring activated', 'success');
-    } catch (error) {
-      this.uiManager.showStatus('Failed to start monitoring: ' + error.message, 'error');
-    }
-  }
-
-  async stopSmartMonitoring() {
-    if (!this.isMonitoring) return;
-
-    try {
-      await this.formFiller.stopMonitoring();
-      this.isMonitoring = false;
-      this.uiManager.showStatus('Monitoring stopped', 'info');
-    } catch (error) {
-      this.uiManager.showStatus('Failed to stop monitoring: ' + error.message, 'error');
-    }
-  }
-
-  // Get current analysis for debugging
-  getCurrentAnalysis() {
-    return this.formFiller.getCurrentAnalysis();
-  }
-
-  // Check if analysis is in progress
-  isAnalyzing() {
-    return this.formFiller.isAnalysisInProgress();
-  }
-
-  // Quick action for immediate form filling after analysis
-  async quickFillAfterAnalysis() {
-    // Try to load resume data if not available in memory
-    if (!this.resumeData) {
-      console.log('📂 No resume data in memory, attempting to load from storage...');
-      this.resumeData = await this.storageManager.getResumeData();
-
-      if (!this.resumeData) {
-        this.uiManager.showStatus('No resume data found. Please upload a resume or extract from LinkedIn first.', 'warning');
-        return;
-      }
-    }
-
-    try {
-      // First try intelligent buttons to reveal fields
-      await this.handleTryIntelligentButtons();
-
-      // Wait a moment for DOM updates
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Then fill the form
-      await this.handleAutoFill();
-
-    } catch (error) {
-      this.uiManager.showStatus('Quick fill failed: ' + error.message, 'error');
-    }
-  }
-
-  async handleLinkedInExtract() {
-    try {
-      this.uiManager.showStatus('🔍 Checking for LinkedIn page...', 'info');
-
-      // Get current tab
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-      if (!tab || !tab.url || !tab.url.includes('linkedin.com')) {
-        this.uiManager.showStatus('Please navigate to your LinkedIn profile page first', 'warning');
-        return;
-      }
-
-      this.uiManager.showLoading(true);
-      this.uiManager.showStatus('💼 Extracting data from LinkedIn profile...', 'info');
-
-      // Inject and execute LinkedIn extractor
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: async () => {
-          // Import and use LinkedInExtractor
-          const { LinkedInExtractor } = await import(chrome.runtime.getURL('js/modules/linkedinExtractor.js'));
-          const extractor = new LinkedInExtractor();
-          return await extractor.extractProfileData();
-        }
-      });
-
-      if (results && results[0] && results[0].result) {
-        const linkedInData = results[0].result;
-
-        // Convert LinkedIn data to the expected format
-        const formattedData = {
-          personal_info: {
-            full_name: linkedInData.personal?.full_name || '',
-            first_name: linkedInData.personal?.first_name || '',
-            last_name: linkedInData.personal?.last_name || '',
-            email: linkedInData.personal?.email || '',
-            phone: linkedInData.personal?.phone || '',
-            location: linkedInData.personal?.location || '',
-            headline: linkedInData.personal?.headline || '',
-            linkedin: linkedInData.personal?.linkedin || ''
-          },
-          summary: linkedInData.summary || '',
-          work_experience: linkedInData.experience || [],
-          education: linkedInData.education || [],
-          skills: linkedInData.skills || [],
-          projects: linkedInData.projects || [],
-          languages: linkedInData.languages || [],
-          certifications: linkedInData.certifications || []
-        };
-
-        // Save the formatted data with source metadata
-        await this.storageManager.saveResumeData(formattedData, 'linkedin');
-        this.resumeData = formattedData;
-
-        // Update UI
-        console.log('🎨 Showing resume data in UI:', formattedData);
-        this.uiManager.showResumeData(formattedData);
-        this.uiManager.hideDataSourceSelection();
-        this.hideStorageInfo();
-        this.uiManager.showStatus('✅ LinkedIn profile data extracted and saved! 🎉', 'success');
-
-        console.log('✅ LinkedIn data extracted and formatted:', formattedData);
-      } else {
-        throw new Error('No data extracted from LinkedIn');
-      }
-
-    } catch (error) {
-      console.error('❌ LinkedIn extraction failed:', error);
-      this.uiManager.showStatus(`Failed to extract LinkedIn data: ${error.message}`, 'error');
-    } finally {
-      this.uiManager.showLoading(false);
-    }
-  }
-
-  showStorageInfo(storageInfo) {
-    const storageInfoDiv = document.getElementById('storage-info');
-    const storageSource = document.getElementById('storage-source');
-    const storageTime = document.getElementById('storage-time');
-
-    if (storageInfoDiv && storageSource && storageTime) {
-      storageSource.textContent = storageInfo.source.charAt(0).toUpperCase() + storageInfo.source.slice(1);
-      storageTime.textContent = this.getTimeSince(storageInfo.lastUpdated);
-      storageInfoDiv.style.display = 'block';
-    }
-  }
-
-  hideStorageInfo() {
-    const storageInfoDiv = document.getElementById('storage-info');
-    if (storageInfoDiv) {
-      storageInfoDiv.style.display = 'none';
-    }
-  }
-
-  async handleUseStoredData() {
-    try {
-      // Load data from storage
-      this.resumeData = await this.storageManager.getResumeData();
-      const metadata = await this.storageManager.getResumeMetadata();
-
-      if (this.resumeData) {
-        // Hide storage info and show resume data
-        this.hideStorageInfo();
-        this.uiManager.showResumeData(this.resumeData);
-        this.uiManager.hideDataSourceSelection();
-
-        const timeSince = this.getTimeSince(metadata?.timestamp);
-        this.uiManager.showStatus(
-          `Using stored resume data from ${metadata?.source || 'unknown'} (${timeSince})`,
-          'success'
-        );
-      } else {
-        throw new Error('No stored data found');
-      }
-    } catch (error) {
-      this.uiManager.showStatus('Failed to load stored data: ' + error.message, 'error');
-    }
-  }
-
-  async handleShowExtractedData() {
-    try {
-      console.log('[Popup] Showing extracted data modal');
-
-      // Get the current resume data
-      const data = await this.storageManager.getResumeData();
-      if (!data) {
-        this.uiManager.showStatus('No extracted data found', 'warning');
-        return;
-      }
-
-      // Get storage info for metadata
-      const storageInfo = await this.storageManager.getStorageInfo();
-
-      // Create modal content
-      const modalBody = document.getElementById('dataModalBody');
-      if (!modalBody) {
-        console.error('Modal body element not found');
-        return;
-      }
-
-      modalBody.innerHTML = this.createDataModalContent(data, storageInfo);
-
-      // Show the modal
-      const dataModal = document.getElementById('dataModal');
-      if (dataModal) {
-        dataModal.style.display = 'flex';
-      }
-    } catch (error) {
-      console.error('[Popup] Error showing extracted data:', error);
-      this.uiManager.showStatus('Failed to load extracted data', 'error');
-    }
-  }
-
-  createDataModalContent(data, storageInfo) {
-    let content = '';
-
-    // Add metadata section
-    if (storageInfo) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">📊 Data Source Information</div>
-          <div class="data-section-content">
-            <div class="data-item-modal"><strong>Source:</strong> ${storageInfo.source || 'Unknown'}</div>
-            <div class="data-item-modal"><strong>Last Updated:</strong> ${storageInfo.lastUpdated || 'Unknown'}</div>
-            <div class="data-item-modal"><strong>Has Data:</strong> ${storageInfo.hasData ? 'Yes' : 'No'}</div>
-          </div>
-        </div>
-      `;
-    }
-
-    // Add personal information section
-    const personalInfo = data.personal_info || data.personal || {};
-    if (personalInfo && Object.keys(personalInfo).length > 0) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">👤 Personal Information</div>
-          <div class="data-section-content">
-            ${Object.entries(personalInfo).map(([key, value]) =>
-              `<div class="data-item-modal"><strong>${this.formatFieldName(key)}:</strong> ${value || 'Not provided'}</div>`
-            ).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    // Add summary section
-    if (data.summary && data.summary.length > 0) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">📝 Summary</div>
-          <div class="data-section-content">
-            <div class="data-item-modal">${data.summary}</div>
-          </div>
-        </div>
-      `;
-    }
-
-    // Add experience section
-    const experience = data.work_experience || data.experience || [];
-    if (experience && experience.length > 0) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">💼 Work Experience (${experience.length} entries)</div>
-          <div class="data-section-content">
-            ${experience.map((exp, index) => `
-              <div class="data-item-modal">
-                <strong>Job ${index + 1}:</strong>
-                <ul class="data-list">
-                  ${exp.title || exp.job_title ? `<li><strong>Title:</strong> ${exp.title || exp.job_title}</li>` : ''}
-                  ${exp.company ? `<li><strong>Company:</strong> ${exp.company}</li>` : ''}
-                  ${exp.dates || exp.duration ? `<li><strong>Dates:</strong> ${exp.dates || exp.duration}</li>` : ''}
-                  ${exp.location ? `<li><strong>Location:</strong> ${exp.location}</li>` : ''}
-                  ${exp.description ? `<li><strong>Description:</strong> ${exp.description}</li>` : ''}
-                </ul>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    // Add education section
-    if (data.education && data.education.length > 0) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">🎓 Education (${data.education.length} entries)</div>
-          <div class="data-section-content">
-            ${data.education.map((edu, index) => `
-              <div class="data-item-modal">
-                <strong>Education ${index + 1}:</strong>
-                <ul class="data-list">
-                  ${edu.school || edu.institution ? `<li><strong>School:</strong> ${edu.school || edu.institution}</li>` : ''}
-                  ${edu.degree ? `<li><strong>Degree:</strong> ${edu.degree}</li>` : ''}
-                  ${edu.year ? `<li><strong>Year:</strong> ${edu.year}</li>` : ''}
-                  ${edu.gpa ? `<li><strong>GPA:</strong> ${edu.gpa}</li>` : ''}
-                </ul>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    // Add skills section
-    if (data.skills && data.skills.length > 0) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">🛠️ Skills (${data.skills.length} skills)</div>
-          <div class="data-section-content">
-            <div class="data-item-modal">${data.skills.join(', ')}</div>
-          </div>
-        </div>
-      `;
-    }
-
-    // Add projects section
-    if (data.projects && data.projects.length > 0) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">🚀 Projects (${data.projects.length} projects)</div>
-          <div class="data-section-content">
-            ${data.projects.map((proj, index) => `
-              <div class="data-item-modal">
-                <strong>Project ${index + 1}:</strong>
-                <ul class="data-list">
-                  ${proj.name ? `<li><strong>Name:</strong> ${proj.name}</li>` : ''}
-                  ${proj.description ? `<li><strong>Description:</strong> ${proj.description}</li>` : ''}
-                </ul>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    // Add languages section
-    if (data.languages && data.languages.length > 0) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">🌍 Languages (${data.languages.length} languages)</div>
-          <div class="data-section-content">
-            ${data.languages.map((lang, index) => `
-              <div class="data-item-modal">
-                <strong>Language ${index + 1}:</strong>
-                <ul class="data-list">
-                  ${lang.language ? `<li><strong>Language:</strong> ${lang.language}</li>` : ''}
-                  ${lang.proficiency ? `<li><strong>Proficiency:</strong> ${lang.proficiency}</li>` : ''}
-                </ul>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    // Add certifications section
-    if (data.certifications && data.certifications.length > 0) {
-      content += `
-        <div class="data-section">
-          <div class="data-section-title">🏆 Certifications (${data.certifications.length} certifications)</div>
-          <div class="data-section-content">
-            ${data.certifications.map((cert, index) => `
-              <div class="data-item-modal">
-                <strong>Certification ${index + 1}:</strong>
-                <ul class="data-list">
-                  ${cert.name ? `<li><strong>Name:</strong> ${cert.name}</li>` : ''}
-                  ${cert.issuer ? `<li><strong>Issuer:</strong> ${cert.issuer}</li>` : ''}
-                  ${cert.year ? `<li><strong>Year:</strong> ${cert.year}</li>` : ''}
-                </ul>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    // Add raw JSON section for debugging
-    content += `
-      <div class="data-section">
-        <div class="data-section-title">🔍 Raw Data (JSON)</div>
-        <div class="data-section-content">
-          <div class="json-data">${JSON.stringify(data, null, 2)}</div>
-        </div>
-      </div>
-    `;
-
-    return content || '<div class="no-data-text">No data available to display</div>';
-  }
-
-  formatFieldName(fieldName) {
-    return fieldName
-      .replace(/_/g, ' ')
-      .replace(/\b\w/g, l => l.toUpperCase());
-  }
-
-  handleReplaceData() {
-    // Hide storage info and show data source selection
-    this.hideStorageInfo();
-    this.showDataSourceSelection();
-    this.uiManager.showStatus('Choose a new data source to replace stored data', 'info');
-  }
-
-
 }
 
 // Initialize popup controller when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('🎬 DOM loaded, initializing popup controller...');
   new PopupController();
 });
-
-// Also initialize immediately if DOM is already loaded
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => new PopupController());
-} else {
-  new PopupController();
-}

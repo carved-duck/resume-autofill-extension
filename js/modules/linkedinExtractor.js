@@ -42,22 +42,25 @@ export class LinkedInExtractor {
       // Step 8: Extract education (basic info from main page)
       const educations = await this.extractEducationBasic();
 
-      const profileData = {
-        personal: personalInfo,
+    const profileData = {
+        personal_info: personalInfo,
         summary: summary,
-        experience: experiences,
+        work_experience: experiences,
         education: educations,
         skills: skills,
-        projects: [],
-        languages: [],
+      projects: [],
+      languages: [],
         certifications: certifications
       };
 
+      // Log the final profile data for debugging
+      console.log('FINAL PROFILE DATA:', JSON.stringify(profileData, null, 2));
+
       console.log('✅ LinkedIn profile data extracted successfully');
       console.log('📊 Extraction Summary:', {
-        personal: Object.keys(profileData.personal || {}).length,
+        personal_info: Object.keys(profileData.personal_info || {}).length,
         summary: profileData.summary?.length || 0,
-        experience: profileData.experience?.length || 0,
+        work_experience: profileData.work_experience?.length || 0,
         education: profileData.education?.length || 0,
         skills: profileData.skills?.length || 0,
         certifications: profileData.certifications?.length || 0
@@ -227,96 +230,74 @@ export class LinkedInExtractor {
       if (contactLink) {
         // Click the contact info link
         contactLink.click();
-        await this.wait(1000);
+        await this.wait(500);
 
-        // Wait for the modal to appear (up to 2s)
+        // Wait for the modal to appear and be visible
         let modal = null;
-        const modalSelectors = [
-          '.artdeco-modal',
-          '.pv-contact-info',
-          '.contact-info-modal',
-          '.artdeco-modal__content'
-        ];
-        for (let i = 0; i < 10; i++) { // retry for up to 2s
-          for (const selector of modalSelectors) {
-            modal = document.querySelector(selector);
-            if (modal && modal.offsetParent !== null) break;
-          }
+        for (let i = 0; i < 10; i++) { // up to 2s
+          modal = document.querySelector('.artdeco-modal[role="dialog"]');
           if (modal && modal.offsetParent !== null) break;
           await this.wait(200);
         }
         if (!modal || modal.offsetParent === null) {
-          console.log('⚠️ Contact info modal not found, using document');
-          modal = document;
+          console.log('⚠️ Contact info modal not found or not visible.');
+          return;
         }
+
+        // Wait for modal content (email or website link) to appear
+        let modalContent = null;
+        for (let i = 0; i < 10; i++) { // up to 2s
+          modalContent = modal.querySelector('section, .pv-contact-info__contact-type, .artdeco-modal__content');
+          if (modalContent && (modalContent.querySelector('a[href^="mailto:"]') || modalContent.querySelector('a[href^="http"]:not([href*="linkedin"])'))) break;
+          await this.wait(200);
+        }
+        if (!modalContent) modalContent = modal;
 
         // Extract email
         let foundEmail = false;
-        const emailSelectors = [
-          'a[href^="mailto:"]',
-          '.ci-email a',
-          '.contact-info a[href^="mailto:"]'
-        ];
-        for (const selector of emailSelectors) {
-          const emailElement = modal.querySelector(selector);
-          if (emailElement) {
-            const email = emailElement.href.replace('mailto:', '');
-            personalInfo.email = email;
-            foundEmail = true;
-            console.log(`✅ Found email: ${email}`);
-            break;
-          }
+        const emailElement = modalContent.querySelector('a[href^="mailto:"]');
+        if (emailElement) {
+          const email = emailElement.href.replace('mailto:', '');
+          personalInfo.email = email;
+          foundEmail = true;
+          console.log(`✅ Found email: ${email}`);
         }
         if (!foundEmail) {
-          console.log('⚠️ Email not found in modal. Modal HTML:', modal.innerHTML?.slice(0, 1000));
+          console.log('⚠️ Email not found in modal. Modal content HTML:', modalContent.innerHTML?.slice(0, 1000));
         }
 
         // Extract website
         let foundWebsite = false;
-        const websiteSelectors = [
-          'a[href^="http"]:not([href*="linkedin"])',
-          '.ci-websites a',
-          '.contact-info a[href^="http"]:not([href*="linkedin"])',
-          '.pv-contact-info__contact-type.ci-websites a'
-        ];
-        for (const selector of websiteSelectors) {
-          const websiteElement = modal.querySelector(selector);
-          if (websiteElement) {
-            const website = websiteElement.href;
-            personalInfo.website = website;
-            foundWebsite = true;
-            console.log(`✅ Found website: ${website}`);
-            break;
-          }
+        // Prefer .ci-websites a, but fallback to any http link not linkedin
+        let websiteElement = modalContent.querySelector('.ci-websites a');
+        if (!websiteElement) {
+          websiteElement = modalContent.querySelector('a[href^="http"]:not([href*="linkedin"])');
+        }
+        if (websiteElement) {
+          const website = websiteElement.href;
+          personalInfo.website = website;
+          foundWebsite = true;
+          console.log(`✅ Found website: ${website}`);
         }
         if (!foundWebsite) {
-          console.log('⚠️ Website not found in modal. Modal HTML:', modal.innerHTML?.slice(0, 1000));
+          console.log('⚠️ Website not found in modal. Modal content HTML:', modalContent.innerHTML?.slice(0, 1000));
         }
 
-        // Extract phone
+        // Extract phone (if present)
         let foundPhone = false;
-        const phoneSelectors = [
-          'span[aria-label*="phone"]',
-          '.ci-phone',
-          '.contact-info .ci-phone',
-          '.pv-contact-info__contact-type.ci-phone span.t-14'
-        ];
-        for (const selector of phoneSelectors) {
-          const phoneElement = modal.querySelector(selector);
-          if (phoneElement) {
-            const phone = phoneElement.textContent.trim();
-            personalInfo.phone = phone;
-            foundPhone = true;
-            console.log(`✅ Found phone: ${phone}`);
-            break;
-          }
+        const phoneElement = modalContent.querySelector('span[aria-label*="phone"], .ci-phone, .contact-info .ci-phone, .pv-contact-info__contact-type.ci-phone span.t-14');
+        if (phoneElement) {
+          const phone = phoneElement.textContent.trim();
+          personalInfo.phone = phone;
+          foundPhone = true;
+          console.log(`✅ Found phone: ${phone}`);
         }
         if (!foundPhone) {
-          console.log('⚠️ Phone not found in modal. Modal HTML:', modal.innerHTML?.slice(0, 1000));
-        }
+          console.log('⚠️ Phone not found in modal. Modal content HTML:', modalContent.innerHTML?.slice(0, 1000));
+      }
 
         // Close contact info modal if open
-        const closeButton = document.querySelector('button[aria-label*="Dismiss"], .artdeco-modal__dismiss');
+        const closeButton = modal.querySelector('button[aria-label*="Dismiss"], .artdeco-modal__dismiss');
         if (closeButton) {
           closeButton.click();
           await this.wait(500);
@@ -347,12 +328,12 @@ export class LinkedInExtractor {
 
       for (const selector of aboutSelectors) {
         const aboutSection = document.querySelector(selector);
-        if (aboutSection) {
-          // Click "see more" if present
+      if (aboutSection) {
+        // Click "see more" if present
           const seeMoreButton = aboutSection.querySelector('button[aria-label*="see more"], .inline-show-more-text__button, button[aria-expanded="false"]');
-          if (seeMoreButton) {
+        if (seeMoreButton) {
             try {
-              seeMoreButton.click();
+          seeMoreButton.click();
               await this.wait(500);
               console.log('✅ Expanded about section');
             } catch (e) {
@@ -364,7 +345,7 @@ export class LinkedInExtractor {
           const textElement = aboutSection.querySelector('span[aria-hidden="true"], .inline-show-more-text span, .pv-about__summary-text, p');
           if (textElement) {
             const summaryText = textElement.textContent.trim();
-            if (summaryText && summaryText.length > 20) {
+        if (summaryText && summaryText.length > 20) {
               console.log(`✅ Found summary: ${summaryText.substring(0, 100)}...`);
               return summaryText;
             }
@@ -424,7 +405,7 @@ export class LinkedInExtractor {
         } catch (e) {
           console.log(`⚠️ Failed to expand skills with selector ${selector}:`, e.message);
         }
-      }
+        }
 
       // Extract skills
       const skillElements = skillsSection.querySelectorAll('.pvs-list__item--line-separated, .pvs-entity, .skill-item, .pvs-entity__path-node');
@@ -483,8 +464,8 @@ export class LinkedInExtractor {
           }
         } catch (e) {
           console.log(`⚠️ Failed to expand certifications with selector ${selector}:`, e.message);
-        }
-      }
+    }
+  }
 
       // Extract certifications
       const certElements = certSection.querySelectorAll('.pvs-list__item--line-separated, .pvs-entity');
@@ -565,12 +546,13 @@ export class LinkedInExtractor {
           const companyElement = exp.querySelector('.pvs-entity__path-node + span, .experience-item__company');
 
           if (titleElement) {
+            // Use the names the UI expects
             const expData = {
-              position_title: titleElement.textContent.trim(),
-              institution_name: companyElement ? companyElement.textContent.trim() : null
+              title: titleElement.textContent.trim(),
+              company: companyElement ? companyElement.textContent.trim() : null
             };
 
-            if (expData.position_title && expData.position_title.length > 2) {
+            if (expData.title && expData.title.length > 2) {
               experiences.push(expData);
             }
           }
@@ -635,12 +617,13 @@ export class LinkedInExtractor {
           const degreeElement = edu.querySelector('.pvs-entity__path-node + span, .education-item__degree');
 
           if (schoolElement) {
+            // Use the names the UI expects
             const eduData = {
-              institution_name: schoolElement.textContent.trim(),
+              school: schoolElement.textContent.trim(),
               degree: degreeElement ? degreeElement.textContent.trim() : null
             };
 
-            if (eduData.institution_name && eduData.institution_name.length > 2) {
+            if (eduData.school && eduData.school.length > 2) {
               educations.push(eduData);
             }
           }
@@ -669,7 +652,7 @@ export class LinkedInExtractor {
       const scrollPosition = (window.innerHeight * (i + 1));
       window.scrollTo({ top: scrollPosition, behavior: 'smooth' });
       await this.wait(scrollDelay);
-    }
+  }
 
     // Scroll back to top
     window.scrollTo({ top: 0, behavior: 'smooth' });

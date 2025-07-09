@@ -1,10 +1,10 @@
 // Enhanced File Handler module for drag-and-drop and file operations
 export class FileHandler {
-  constructor(uploadSection, fileInput, onFileSelected) {
+  constructor(uploadSection = null, fileInput = null, onFileSelected = null) {
     this.uploadSection = uploadSection;
     this.fileInput = fileInput;
     this.onFileSelected = onFileSelected;
-    this.isFileDialogOpen = false; // Add flag to prevent multiple dialogs
+    this.isFileDialogOpen = false;
 
     // Bind methods to preserve 'this' context
     this.preventDefaults = this.preventDefaults.bind(this);
@@ -14,18 +14,24 @@ export class FileHandler {
     this.handleFileInput = this.handleFileInput.bind(this);
     this.handleUploadClick = this.handleUploadClick.bind(this);
 
-    this.setupDragAndDrop();
-    this.setupFileInput();
-    this.setupClickHandler();
-
-    console.log('📁 FileHandler initialized');
+    // Only set up if elements are provided
+    if (uploadSection && fileInput) {
+      this.setupDragAndDrop();
+      this.setupFileInput();
+      this.setupClickHandler();
+      console.log('📁 FileHandler initialized with full functionality');
+    } else {
+      console.log('📁 FileHandler initialized in minimal mode (missing DOM elements)');
+    }
   }
 
   setupDragAndDrop() {
     if (!this.uploadSection) {
-      console.error('❌ Upload section not found');
+      console.log('ℹ️ Upload section not found - skipping drag and drop setup');
       return;
     }
+
+    console.log('✅ Setting up drag and drop on upload section');
 
     // Prevent default drag behaviors on the upload section and document
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -45,56 +51,26 @@ export class FileHandler {
 
     // Handle dropped files
     this.uploadSection.addEventListener('drop', (e) => this.handleDrop(e), false);
-
-    console.log('🎯 Drag and drop events set up');
   }
 
   setupFileInput() {
     if (!this.fileInput) {
-      console.error('❌ File input not found');
+      console.log('ℹ️ File input not found - skipping file input setup');
       return;
     }
 
-    console.log('🔍 Setting up file input:', this.fileInput);
-    console.log('🔍 File input type before:', this.fileInput.type);
-    console.log('🔍 File input accept before:', this.fileInput.accept);
-
-    // Make sure the file input is properly configured
-    this.fileInput.type = 'file';
-    this.fileInput.accept = '.pdf';
-    this.fileInput.style.display = 'none';
-
-    console.log('🔍 File input type after:', this.fileInput.type);
-    console.log('🔍 File input accept after:', this.fileInput.accept);
-
-    this.fileInput.addEventListener('change', (e) => {
-      console.log('🎯 File input change event fired!');
-      this.handleFileInput(e);
-    }, false);
-    console.log('📎 File input change event set up');
+    console.log('✅ Setting up file input handler');
+    this.fileInput.addEventListener('change', (e) => this.handleFileInput(e), false);
   }
 
   setupClickHandler() {
     if (!this.uploadSection) {
-      console.error('❌ Upload section not found for click handler');
+      console.log('ℹ️ Upload section not found - skipping click handler setup');
       return;
     }
 
-    if (!this.fileInput) {
-      console.error('❌ File input not found for click handler');
-      return;
-    }
-
-    // Handle click on upload section to open file dialog
+    console.log('✅ Setting up click handlers');
     this.uploadSection.addEventListener('click', (e) => this.handleUploadClick(e), false);
-
-    // Also handle direct clicks on the upload section text
-    const uploadText = this.uploadSection.querySelector('.upload-text');
-    if (uploadText) {
-      uploadText.addEventListener('click', (e) => this.handleUploadClick(e), false);
-    }
-
-    console.log('👆 Upload section click handler set up');
   }
 
   preventDefaults(e) {
@@ -102,201 +78,71 @@ export class FileHandler {
     e.stopPropagation();
   }
 
-  highlight() {
-    this.uploadSection.classList.add('highlight');
-    console.log('✨ Upload area highlighted');
+  highlight(e) {
+    if (this.uploadSection) {
+      this.uploadSection.classList.add('highlight');
+    }
   }
 
-  unhighlight() {
-    this.uploadSection.classList.remove('highlight');
-    console.log('🔄 Upload area unhighlighted');
+  unhighlight(e) {
+    if (this.uploadSection) {
+      this.uploadSection.classList.remove('highlight');
+    }
   }
 
   handleDrop(e) {
-    console.log('📥 File dropped');
-
     const dt = e.dataTransfer;
     const files = dt.files;
 
     if (files.length > 0) {
-      const file = files[0];
-      console.log('📄 Processing dropped file:', file.name);
-      this.processFile(file);
-    } else {
-      console.warn('⚠️ No files found in drop event');
+      this.handleFiles(files);
     }
   }
 
   handleFileInput(e) {
-    console.log('📁 File input changed');
-
-    if (e.target.files.length > 0) {
-      const file = e.target.files[0];
-      console.log('📄 Processing selected file:', file.name);
-      this.processFile(file);
-    } else {
-      console.warn('⚠️ No files selected');
+    const files = e.target.files;
+    if (files.length > 0) {
+      this.handleFiles(files);
     }
   }
 
-      handleUploadClick(e) {
-    // Don't trigger file dialog if clicking on the upload button itself
-    // But allow the browse button to work
-    if (e.target.tagName === 'BUTTON' && e.target.id !== 'browse-btn') {
-      console.log('🔘 Upload button clicked, not triggering file dialog');
-      return;
-    }
+  handleUploadClick(e) {
+    if (this.fileInput && !this.isFileDialogOpen) {
+      this.isFileDialogOpen = true;
+      this.fileInput.click();
 
-    // Prevent event bubbling
-    e.preventDefault();
-    e.stopPropagation();
-
-    console.log('👆 Upload section clicked, opening file dialog');
-    console.log('🔍 File input element:', this.fileInput);
-    console.log('🔍 File input type:', this.fileInput?.type);
-    console.log('🔍 File input accept:', this.fileInput?.accept);
-
-    // Prevent multiple file dialogs from opening
-    if (this.isFileDialogOpen) {
-      console.log('⚠️ File dialog already open, ignoring click');
-      return;
-    }
-
-    // Create a new temporary file input for each click
-    try {
-      console.log('🎯 Creating temporary file input...');
-      this.isFileDialogOpen = true; // Set flag
-
-      const tempInput = document.createElement('input');
-      tempInput.type = 'file';
-      tempInput.accept = '.pdf';
-      tempInput.style.display = 'none';
-
-      // Add change event listener
-      tempInput.addEventListener('change', (e) => {
-        console.log('🎯 Temporary file input change event fired!');
-        this.isFileDialogOpen = false; // Reset flag
-        this.handleFileInput(e);
-        // Clean up
-        document.body.removeChild(tempInput);
-      });
-
-      // Add to DOM and trigger click
-      document.body.appendChild(tempInput);
-      tempInput.click();
-      console.log('✅ Temporary file dialog triggered successfully');
-
-    } catch (error) {
-      console.error('❌ Failed to create temporary file input:', error);
-      this.isFileDialogOpen = false; // Reset flag on error
+      // Reset flag after a delay
+      setTimeout(() => {
+        this.isFileDialogOpen = false;
+      }, 1000);
     }
   }
 
-  processFile(file) {
-    if (!file) {
-      console.error('❌ No file provided to process');
-      return;
+  handleFiles(files) {
+    const file = files[0];
+    if (file && this.onFileSelected) {
+      this.onFileSelected(file);
     }
+  }
 
-    console.log('🔍 Processing file:', {
-      name: file.name,
-      type: file.type,
-      size: file.size
+  // Add method for external file processing
+  async processFile(file) {
+    console.log('📄 Processing file:', file.name);
+
+    // This would typically send the file to your backend
+    // For now, return a mock response
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({
+          personal_info: {
+            name: 'Mock User',
+            email: 'mock@example.com'
+          },
+          experience: [],
+          education: [],
+          skills: []
+        });
+      }, 1000);
     });
-
-    // Validate file before calling callback
-    const errors = this.validateFile(file);
-    if (errors.length > 0) {
-      console.error('❌ File validation failed:', errors);
-      // Still call the callback so the UI can show the error
-      this.onFileSelected(null, errors);
-      return;
-    }
-
-    console.log('✅ File validation passed');
-    this.onFileSelected(file);
-  }
-
-  validateFile(file) {
-    const errors = [];
-
-    if (!file) {
-      errors.push('No file selected');
-      return errors;
-    }
-
-    console.log('🔍 Validating file:', file.name, 'Type:', file.type);
-
-    // Check file type
-    if (file.type !== 'application/pdf') {
-      errors.push('Please select a PDF file. Selected file type: ' + (file.type || 'unknown'));
-    }
-
-    // Check file size (10MB limit)
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      errors.push(`File size must be less than 10MB. Current size: ${this.formatFileSize(file.size)}`);
-    }
-
-    // Check if file has content
-    if (file.size === 0) {
-      errors.push('File appears to be empty');
-    }
-
-    if (errors.length > 0) {
-      console.warn('⚠️ File validation errors:', errors);
-    } else {
-      console.log('✅ File validation successful');
-    }
-
-    return errors;
-  }
-
-  getFileInfo(file) {
-    if (!file) return null;
-
-    return {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      lastModified: file.lastModified,
-      sizeFormatted: this.formatFileSize(file.size)
-    };
-  }
-
-  formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
-  reset() {
-    if (this.fileInput) {
-      this.fileInput.value = '';
-    }
-    this.unhighlight();
-    console.log('🔄 FileHandler reset');
-  }
-
-  // Test method to verify functionality
-  test() {
-    console.log('🧪 Testing FileHandler:');
-    console.log('- Upload section:', !!this.uploadSection);
-    console.log('- File input:', !!this.fileInput);
-    console.log('- Callback:', typeof this.onFileSelected);
-
-    if (this.uploadSection) {
-      console.log('- Upload section classes:', this.uploadSection.className);
-      console.log('- Upload section ID:', this.uploadSection.id);
-    }
-
-    if (this.fileInput) {
-      console.log('- File input type:', this.fileInput.type);
-      console.log('- File input accept:', this.fileInput.accept);
-    }
   }
 }
