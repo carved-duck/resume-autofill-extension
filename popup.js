@@ -88,6 +88,12 @@ class PopupController {
       clearDataBtn.addEventListener('click', () => this.clearAllData());
     }
 
+    // Show extracted data button
+    const showDataBtn = document.getElementById('showDataBtn');
+    if (showDataBtn) {
+      showDataBtn.addEventListener('click', () => this.showExtractedData());
+    }
+
     // Page analysis button
     const analyzePageBtn = document.getElementById('analyzePageBtn');
     if (analyzePageBtn) {
@@ -135,9 +141,77 @@ class PopupController {
     }
   }
 
+  async checkContentScriptReady(tabId, maxRetries = 3) {
+    console.log('🔍 Checking if content script is ready...');
+    
+    let lastError = null;
+    let lastResponse = null;
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await chrome.tabs.sendMessage(tabId, {
+          action: 'ping'
+        });
+        
+        lastResponse = response;
+        
+        if (response && response.success && response.ready) {
+          console.log('✅ Content script is ready:', response);
+          return { ready: true, response };
+        } else if (response && response.success && !response.ready) {
+          console.log('⚠️ Content script loaded but not ready:', response);
+          return { ready: false, response, error: response.error || 'Not initialized' };
+        }
+      } catch (error) {
+        lastError = error;
+        console.log(`⚠️ Content script ping attempt ${i + 1} failed:`, error.message);
+        
+        if (i < maxRetries - 1) {
+          // Wait before retrying (exponential backoff)
+          const waitTime = Math.pow(2, i) * 1000; // 1s, 2s, 4s
+          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+    
+    console.log('❌ Content script not ready after all retries');
+    return { 
+      ready: false, 
+      error: lastError?.message || 'Connection failed',
+      response: lastResponse,
+      attempts: maxRetries
+    };
+  }
+
+  showContentScriptError(status) {
+    let message = 'Content script error: ';
+    let instructions = '';
+
+    if (status.error === 'Could not establish connection. Receiving end does not exist.') {
+      message = 'Extension not loaded on this page.';
+      instructions = 'Please refresh the page and try again.';
+    } else if (status.response && !status.response.ready) {
+      message = 'Extension is loading but not ready.';
+      instructions = 'Please wait a moment and try again.';
+      if (status.response.error) {
+        message += ` Error: ${status.response.error}`;
+      }
+    } else if (status.error === 'Connection failed') {
+      message = 'Cannot connect to extension on this page.';
+      instructions = 'Please refresh the page and ensure the extension is enabled.';
+    } else {
+      message += status.error;
+      instructions = 'Please refresh the page and try again.';
+    }
+
+    this.showMessage(`${message} ${instructions}`, 'error');
+    console.log('❌ Content script error details:', status);
+  }
+
   async extractLinkedInData() {
     try {
-      this.showMessage('Extracting LinkedIn profile data...', 'info');
+      this.showMessage('Checking content script status...', 'info');
 
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -145,6 +219,15 @@ class PopupController {
         this.showMessage('Please navigate to a LinkedIn profile page', 'error');
         return;
       }
+
+      // Check if content script is ready
+      const readyStatus = await this.checkContentScriptReady(tab.id);
+      if (!readyStatus.ready) {
+        this.showContentScriptError(readyStatus);
+        return;
+      }
+
+      this.showMessage('Extracting LinkedIn profile data...', 'info');
 
       const response = await chrome.tabs.sendMessage(tab.id, {
         action: 'extractLinkedIn'
@@ -162,27 +245,97 @@ class PopupController {
 
       if (response && response.success && response.data) {
         console.log('✅ LinkedIn data extracted successfully');
+        console.log('🔍 Popup received data:', JSON.stringify(response.data, null, 2));
+
+        // Enhanced data structure logging
+        console.log('📊 Popup data analysis:', {
+          hasPersonalInfo: !!response.data.personal_info,
+          hasPersonal: !!response.data.personal,
+          personalInfoKeys: Object.keys(response.data.personal_info || {}),
+          personalKeys: Object.keys(response.data.personal || {}),
+          hasWorkExperience: !!response.data.work_experience,
+          workExperienceCount: response.data.work_experience?.length || 0,
+          hasEducation: !!response.data.education,
+          educationCount: response.data.education?.length || 0,
+          hasSkills: !!response.data.skills,
+          skillsCount: response.data.skills?.length || 0,
+          hasSummary: !!response.data.summary,
+          summaryLength: response.data.summary?.length || 0
+        });
 
         // Ensure data compatibility
         if (response.data.personal_info && !response.data.personal) {
           response.data.personal = response.data.personal_info;
+          console.log('🔄 Added personal field for UI compatibility');
         }
         if (response.data.work_experience && !response.data.experience) {
           response.data.experience = response.data.work_experience;
+          console.log('🔄 Added experience field for UI compatibility');
         }
 
         await this.storageManager.saveResumeData(response.data, 'linkedin');
         this.resumeData = response.data;
+        
+        console.log('🎨 Calling uiManager.showResumeData with:', {
+          dataKeys: Object.keys(response.data),
+          personalInfoExists: !!response.data.personal_info,
+          personalExists: !!response.data.personal
+        });
+        
         this.uiManager.showResumeData(response.data);
         this.showMessage('LinkedIn profile data extracted successfully!', 'success');
       } else {
         const errorMsg = response?.error || 'Failed to extract LinkedIn data';
         console.error('❌ LinkedIn extraction failed:', errorMsg);
-        this.showMessage(errorMsg, 'error');
+        this.showLinkedInExtractionError(errorMsg);
       }
     } catch (error) {
       console.error('❌ Error during LinkedIn extraction:', error);
-      this.showMessage('Error extracting LinkedIn data: ' + error.message, 'error');
+      this.showLinkedInExtractionError(error.message);
+    }
+  }
+
+  showLinkedInExtractionError(errorMessage) {
+    let message = 'LinkedIn extraction failed: ';
+    let instructions = '';
+
+    if (errorMessage.includes('Could not establish connection')) {
+      message = 'Cannot connect to LinkedIn page.';
+      instructions = 'Please refresh the page and try again.';
+    } else if (errorMessage.includes('Not on LinkedIn page')) {
+      message = 'Please navigate to your LinkedIn profile page.';
+      instructions = 'Go to linkedin.com/in/your-profile and try again.';
+    } else if (errorMessage.includes('not fully initialized')) {
+      message = 'Extension is still loading.';
+      instructions = 'Please wait a moment and try again.';
+    } else {
+      message += errorMessage;
+      instructions = 'Please refresh the page and ensure you are on your LinkedIn profile.';
+    }
+
+    this.showMessage(`${message} ${instructions}`, 'error');
+  }
+
+  async showExtractedData() {
+    try {
+      console.log('🔍 Showing extracted data modal...');
+      
+      // Get the latest resume data
+      const data = await this.storageManager.getLatestResumeData();
+      
+      if (!data) {
+        this.showMessage('No extracted data found. Please extract data first.', 'error');
+        return;
+      }
+
+      console.log('📊 Showing extracted data:', data);
+      
+      // Show the data in a modal or detailed view
+      this.uiManager.showDetailedDataModal(data);
+      
+    } catch (error) {
+      console.error('❌ Error showing extracted data:', error);
+      this.showMessage('Error displaying extracted data: ' + error.message, 'error');
     }
   }
 

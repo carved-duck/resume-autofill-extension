@@ -55,6 +55,11 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
       } catch (error) {
         console.error('❌ Failed to initialize content script:', error);
+        this.initializationError = error.message;
+        
+        // Set up basic message listener even if initialization fails
+        this.setupBasicMessageListener();
+        
         window.NotificationManager?.showNotification(
           'Failed to initialize auto-fill extension',
           'error'
@@ -122,7 +127,9 @@ if (window.resumeAutoFillContentScriptLoaded) {
                 success: true,
                 message: 'Content script is active',
                 features: ['fillForm', 'extractLinkedIn', 'analyzePageStructure'],
-                ready: this.isInitialized
+                ready: this.isInitialized,
+                error: this.initializationError || null,
+                timestamp: new Date().toISOString()
               });
               break;
 
@@ -132,6 +139,37 @@ if (window.resumeAutoFillContentScriptLoaded) {
           }
 
           return true; // Indicate async response
+        });
+      }
+    }
+
+    setupBasicMessageListener() {
+      // Set up a basic message listener even if full initialization fails
+      if (!window.resumeAutoFillBasicListenersSet) {
+        window.resumeAutoFillBasicListenersSet = true;
+        
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+          console.log('📨 Basic message listener received:', message);
+          
+          if (message.action === 'ping') {
+            sendResponse({
+              success: true,
+              message: 'Content script loaded but not fully initialized',
+              features: [],
+              ready: false,
+              error: this.initializationError || 'Initialization failed',
+              timestamp: new Date().toISOString()
+            });
+            return true;
+          }
+          
+          // For other actions, indicate not ready
+          sendResponse({
+            success: false,
+            error: 'Content script not ready: ' + (this.initializationError || 'Unknown error'),
+            ready: false
+          });
+          return true;
         });
       }
     }
@@ -226,11 +264,37 @@ if (window.resumeAutoFillContentScriptLoaded) {
       try {
         console.log('🔍 Starting LinkedIn profile extraction...');
 
+        // Check if we're actually on LinkedIn
+        if (!window.location.hostname.includes('linkedin.com')) {
+          throw new Error('Not on LinkedIn page');
+        }
+
+        // Check if content script is fully initialized
+        if (!this.isInitialized) {
+          throw new Error('Content script not fully initialized: ' + (this.initializationError || 'Unknown error'));
+        }
+
         const extractedData = await this.extractLinkedInProfile();
-        console.log('🔍 Raw extracted data:', extractedData);
+        console.log('🔍 Raw extracted data:', JSON.stringify(extractedData, null, 2));
 
         const normalizedData = this.normalizeProfileData(extractedData);
-        console.log('🔄 Normalized data:', normalizedData);
+        console.log('🔄 Normalized data:', JSON.stringify(normalizedData, null, 2));
+
+        // Enhanced logging for debugging
+        console.log('📊 Data structure analysis:', {
+          hasPersonalInfo: !!normalizedData.personal_info,
+          hasPersonal: !!normalizedData.personal,
+          personalInfoKeys: Object.keys(normalizedData.personal_info || {}),
+          personalKeys: Object.keys(normalizedData.personal || {}),
+          hasWorkExperience: !!normalizedData.work_experience,
+          workExperienceCount: normalizedData.work_experience?.length || 0,
+          hasEducation: !!normalizedData.education,
+          educationCount: normalizedData.education?.length || 0,
+          hasSkills: !!normalizedData.skills,
+          skillsCount: normalizedData.skills?.length || 0,
+          hasSummary: !!normalizedData.summary,
+          summaryLength: normalizedData.summary?.length || 0
+        });
 
         // Save to storage with simple fallback
         try {
@@ -273,7 +337,8 @@ if (window.resumeAutoFillContentScriptLoaded) {
       }
 
       try {
-        const profileData = await window.LinkedInExtractor.extractProfileData();
+        const extractor = new window.LinkedInExtractor();
+        const profileData = await extractor.extractProfileData();
         console.log('✅ LinkedIn profile extracted:', profileData);
         return profileData;
       } catch (error) {
@@ -284,330 +349,118 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
     async loadLinkedInExtractor() {
       return new Promise((resolve, reject) => {
-        // Create a comprehensive LinkedIn extractor inline
-        if (!window.LinkedInExtractor) {
-          class SimpleLinkedInExtractor {
-            constructor() {
-              this.isLinkedInPage = window.location.hostname.includes('linkedin.com');
-            }
+        if (window.LinkedInExtractor) {
+          console.log('✅ LinkedIn extractor already loaded');
+          resolve();
+          return;
+        }
 
-            async extractProfileData() {
-              if (!this.isLinkedInPage) {
-                throw new Error('Not on LinkedIn page');
-              }
+        try {
+          // Try to load the external LinkedIn extractor module
+          const script = document.createElement('script');
+          script.type = 'module';
+          script.src = chrome.runtime.getURL('js/modules/linkedinExtractor.js');
+          
+          script.onload = () => {
+            console.log('✅ LinkedIn extractor module loaded successfully');
+            // Import the class from the module
+            import(chrome.runtime.getURL('js/modules/linkedinExtractor.js'))
+              .then(module => {
+                window.LinkedInExtractor = module.LinkedInExtractor;
+                console.log('✅ LinkedIn extractor class imported and exposed to global scope');
+                resolve();
+              })
+              .catch(error => {
+                console.error('❌ Failed to import LinkedIn extractor:', error);
+                this.createFallbackExtractor();
+                resolve();
+              });
+          };
 
-              console.log('🔍 Extracting LinkedIn profile data...');
+          script.onerror = (error) => {
+            console.error('❌ Failed to load LinkedIn extractor module:', error);
+            this.createFallbackExtractor();
+            resolve();
+          };
 
-              const profileData = {
-                personal_info: {},
-                personal: {},       // For UI compatibility
-                summary: '',
-                experience: [],
-                work_experience: [], // For UI compatibility
-                education: [],
-                skills: [],
-                projects: [],
-                languages: [],
-                certifications: []
-              };
+          document.head.appendChild(script);
+        } catch (error) {
+          console.error('❌ Error loading LinkedIn extractor:', error);
+          this.createFallbackExtractor();
+          resolve();
+        }
+      });
+    }
 
-              try {
-                // Extract personal information
-                await this.extractPersonalInfo(profileData);
+    createFallbackExtractor() {
+      console.log('⚠️ Creating fallback LinkedIn extractor');
+      
+      // Create a simpler fallback extractor
+      class FallbackLinkedInExtractor {
+        constructor() {
+          this.isLinkedInPage = window.location.hostname.includes('linkedin.com');
+        }
 
-                // Extract summary/about section
-                await this.extractSummary(profileData);
+        async extractProfileData() {
+          if (!this.isLinkedInPage) {
+            throw new Error('Not on LinkedIn page');
+          }
 
-                // Extract experience
-                await this.extractExperience(profileData);
+          console.log('🔍 Using fallback LinkedIn extractor...');
 
-                // Extract education
-                await this.extractEducation(profileData);
+          const profileData = {
+            personal_info: {},
+            personal: {},
+            summary: '',
+            experience: [],
+            work_experience: [],
+            education: [],
+            skills: [],
+            projects: [],
+            languages: [],
+            certifications: []
+          };
 
-                // Extract skills
-                await this.extractSkills(profileData);
-
-                // Ensure data compatibility
-                profileData.personal = profileData.personal_info;
-                profileData.work_experience = profileData.experience;
-
-                console.log('✅ LinkedIn profile data extracted successfully');
-                return profileData;
-
-              } catch (error) {
-                console.error('❌ Failed to extract LinkedIn data:', error);
-                throw error;
-              }
-            }
-
-            async extractPersonalInfo(profileData) {
-              try {
-                // Name - try multiple selectors
-                const nameSelectors = [
-                  'h1.text-heading-xlarge',
-                  'h1.pv-text-details__left-panel h1',
-                  '.pv-text-details__left-panel h1',
-                  '.top-card-layout__title h1',
-                  '.profile-photo-edit__preview-container + div h1'
-                ];
-
-                let nameElement = null;
-                for (const selector of nameSelectors) {
-                  nameElement = document.querySelector(selector);
-                  if (nameElement) break;
-                }
-
-                if (nameElement) {
-                  const fullName = nameElement.textContent.trim();
-                  profileData.personal_info.full_name = fullName;
-                  profileData.personal_info.name = fullName;
-
-                  const nameParts = fullName.split(' ');
-                  if (nameParts.length >= 2) {
-                    profileData.personal_info.first_name = nameParts[0];
-                    profileData.personal_info.last_name = nameParts[nameParts.length - 1];
-                  }
-                }
-
-                // Profile headline
-                const headlineSelectors = [
-                  '.text-body-medium.break-words',
-                  '.pv-text-details__left-panel .text-body-medium',
-                  '.top-card-layout__headline',
-                  '.pv-top-card--list-bullet .text-body-medium'
-                ];
-
-                let headlineElement = null;
-                for (const selector of headlineSelectors) {
-                  headlineElement = document.querySelector(selector);
-                  if (headlineElement && headlineElement.textContent.trim().length > 10) break;
-                }
-
-                if (headlineElement) {
-                  profileData.personal_info.headline = headlineElement.textContent.trim();
-                }
-
-                // Location
-                const locationSelectors = [
-                  '.text-body-small.inline.t-black--light.break-words',
-                  '.pv-text-details__left-panel .text-body-small',
-                  '.top-card__subline-item'
-                ];
-
-                let locationElement = null;
-                for (const selector of locationSelectors) {
-                  locationElement = document.querySelector(selector);
-                  if (locationElement && locationElement.textContent.includes(',')) break;
-                }
-
-                if (locationElement) {
-                  profileData.personal_info.location = locationElement.textContent.trim();
-                }
-
-                // LinkedIn URL
-                profileData.personal_info.linkedin = window.location.href.split('?')[0];
-
-                // Try to extract email from contact info (if visible)
-                const emailElement = document.querySelector('[href^="mailto:"]');
-                if (emailElement) {
-                  profileData.personal_info.email = emailElement.href.replace('mailto:', '');
-                }
-
-                console.log('✅ Extracted personal info from LinkedIn');
-              } catch (error) {
-                console.warn('⚠️ Failed to extract personal info:', error);
-              }
-            }
-
-            async extractSummary(profileData) {
-              try {
-                // About section - try multiple selectors
-                const aboutSelectors = [
-                  '#about ~ .pv-shared-text-with-see-more',
-                  '.pv-about-section .pv-about__summary-text',
-                  '[data-section="summary"] .full-width',
-                  '.core-section-container__content .break-words',
-                  '.pv-about__summary-text .full-width'
-                ];
-
-                let aboutSection = null;
-                for (const selector of aboutSelectors) {
-                  aboutSection = document.querySelector(selector);
-                  if (aboutSection) break;
-                }
-
-                if (aboutSection) {
-                  // Click "see more" if present
-                  const seeMoreButton = aboutSection.querySelector('button[aria-label*="see more"], .inline-show-more-text__button');
-                  if (seeMoreButton) {
-                    seeMoreButton.click();
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                  }
-
-                  const summaryText = aboutSection.textContent.trim();
-                  if (summaryText && summaryText.length > 20) {
-                    profileData.summary = summaryText;
-                  }
-                }
-
-                console.log('✅ Extracted summary from LinkedIn');
-              } catch (error) {
-                console.warn('⚠️ Failed to extract summary:', error);
-              }
-            }
-
-            async extractExperience(profileData) {
-              try {
-                const experienceSelectors = [
-                  '#experience ~ .pvs-list',
-                  '.pv-profile-section.experience-section ul',
-                  '[data-section="experience"] .pvs-list'
-                ];
-
-                let experienceSection = null;
-                for (const selector of experienceSelectors) {
-                  experienceSection = document.querySelector(selector);
-                  if (experienceSection) break;
-                }
-
-                if (!experienceSection) return;
-
-                const experienceItems = experienceSection.querySelectorAll('.pvs-list__paged-list-item, .pv-entity__summary-info');
-
-                for (const item of experienceItems) {
-                  const experience = {};
-
-                  // Job title
-                  const titleElement = item.querySelector('.mr1.t-bold span[aria-hidden="true"], .pv-entity__summary-info h3');
-                  if (titleElement) {
-                    experience.title = titleElement.textContent.trim();
-                    experience.job_title = experience.title;
-                  }
-
-                  // Company
-                  const companyElement = item.querySelector('.t-14.t-normal span[aria-hidden="true"], .pv-entity__secondary-title');
-                  if (companyElement) {
-                    experience.company = companyElement.textContent.trim();
-                    experience.institution_name = experience.company;
-                  }
-
-                  // Duration
-                  const durationElement = item.querySelector('.t-14.t-normal.t-black--light span[aria-hidden="true"], .pv-entity__bullet-item-v2');
-                  if (durationElement) {
-                    experience.dates = durationElement.textContent.trim();
-                    experience.duration = experience.dates;
-                  }
-
-                  // Location
-                  const locationElements = item.querySelectorAll('.t-14.t-normal.t-black--light span[aria-hidden="true"]');
-                  for (const locEl of locationElements) {
-                    const text = locEl.textContent.trim();
-                    if (text.includes(',') || text.includes('Remote')) {
-                      experience.location = text;
-                      break;
-                    }
-                  }
-
-                  if (experience.title || experience.company) {
-                    profileData.experience.push(experience);
-                  }
-                }
-
-                console.log(`✅ Extracted ${profileData.experience.length} experience entries from LinkedIn`);
-              } catch (error) {
-                console.warn('⚠️ Failed to extract experience:', error);
-              }
-            }
-
-            async extractEducation(profileData) {
-              try {
-                const educationSelectors = [
-                  '#education ~ .pvs-list',
-                  '.pv-profile-section.education-section ul',
-                  '[data-section="education"] .pvs-list'
-                ];
-
-                let educationSection = null;
-                for (const selector of educationSelectors) {
-                  educationSection = document.querySelector(selector);
-                  if (educationSection) break;
-                }
-
-                if (!educationSection) return;
-
-                const educationItems = educationSection.querySelectorAll('.pvs-list__paged-list-item, .pv-entity__summary-info');
-
-                for (const item of educationItems) {
-                  const education = {};
-
-                  // School
-                  const schoolElement = item.querySelector('.mr1.t-bold span[aria-hidden="true"], .pv-entity__school-name');
-                  if (schoolElement) {
-                    education.school = schoolElement.textContent.trim();
-                    education.institution_name = education.school;
-                  }
-
-                  // Degree
-                  const degreeElement = item.querySelector('.t-14.t-normal span[aria-hidden="true"], .pv-entity__degree-name');
-                  if (degreeElement) {
-                    education.degree = degreeElement.textContent.trim();
-                  }
-
-                  // Year
-                  const yearElement = item.querySelector('.t-14.t-normal.t-black--light span[aria-hidden="true"]');
-                  if (yearElement) {
-                    education.year = yearElement.textContent.trim();
-                  }
-
-                  if (education.school || education.degree) {
-                    profileData.education.push(education);
-                  }
-                }
-
-                console.log(`✅ Extracted ${profileData.education.length} education entries from LinkedIn`);
-              } catch (error) {
-                console.warn('⚠️ Failed to extract education:', error);
-              }
-            }
-
-            async extractSkills(profileData) {
-              try {
-                const skillsSelectors = [
-                  '#skills ~ .pvs-list',
-                  '.pv-profile-section.skills-section ul',
-                  '[data-section="skills"] .pvs-list'
-                ];
-
-                let skillsSection = null;
-                for (const selector of skillsSelectors) {
-                  skillsSection = document.querySelector(selector);
-                  if (skillsSection) break;
-                }
-
-                if (!skillsSection) return;
-
-                const skillElements = skillsSection.querySelectorAll('.mr1.t-bold span[aria-hidden="true"], .pv-skill-category-entity__name');
-
-                for (const skillElement of skillElements) {
-                  const skill = skillElement.textContent.trim();
-                  if (skill && skill.length > 1) {
-                    profileData.skills.push(skill);
-                  }
-                }
-
-                console.log(`✅ Extracted ${profileData.skills.length} skills from LinkedIn`);
-              } catch (error) {
-                console.warn('⚠️ Failed to extract skills:', error);
-              }
+          // Extract name
+          const nameElement = document.querySelector('h1.text-heading-xlarge, h1');
+          if (nameElement) {
+            const fullName = nameElement.textContent.trim();
+            profileData.personal_info.full_name = fullName;
+            profileData.personal_info.name = fullName;
+            
+            const nameParts = fullName.split(' ');
+            if (nameParts.length >= 2) {
+              profileData.personal_info.first_name = nameParts[0];
+              profileData.personal_info.last_name = nameParts[nameParts.length - 1];
             }
           }
 
-          window.LinkedInExtractor = new SimpleLinkedInExtractor();
-          console.log('✅ LinkedIn extractor created and exposed to global scope');
-        }
+          // Extract headline
+          const headlineElement = document.querySelector('.text-body-medium.break-words');
+          if (headlineElement) {
+            profileData.personal_info.headline = headlineElement.textContent.trim();
+          }
 
-        resolve();
-      });
+          // Extract location
+          const locationElement = document.querySelector('.text-body-small.inline.t-black--light.break-words');
+          if (locationElement) {
+            profileData.personal_info.location = locationElement.textContent.trim();
+          }
+
+          // Set LinkedIn URL
+          profileData.personal_info.linkedin = window.location.href.split('?')[0];
+
+          // Ensure data compatibility
+          profileData.personal = profileData.personal_info;
+          profileData.work_experience = profileData.experience;
+
+          console.log('✅ Fallback LinkedIn profile data extracted');
+          return profileData;
+        }
+      }
+
+      window.LinkedInExtractor = FallbackLinkedInExtractor;
+      console.log('✅ Fallback LinkedIn extractor created and exposed to global scope');
     }
 
     // --------------------------------------------------
@@ -616,30 +469,75 @@ if (window.resumeAutoFillContentScriptLoaded) {
     normalizeProfileData(data) {
       console.log('🔄 Normalizing profile data...');
 
-      if (!data) return {};
+      if (!data) {
+        console.log('⚠️ No data to normalize, returning empty structure');
+        return this.createEmptyProfileData();
+      }
 
-      // Ensure both personal_info and personal exist
-      if (data.personal_info && !data.personal) {
-        data.personal = data.personal_info;
-      } else if (data.personal && !data.personal_info) {
-        data.personal_info = data.personal;
+      // Create a normalized copy
+      const normalized = { ...data };
+
+      // Ensure both personal_info and personal exist and are populated
+      if (normalized.personal_info && !normalized.personal) {
+        normalized.personal = { ...normalized.personal_info };
+      } else if (normalized.personal && !normalized.personal_info) {
+        normalized.personal_info = { ...normalized.personal };
+      } else if (!normalized.personal_info && !normalized.personal) {
+        normalized.personal_info = {};
+        normalized.personal = {};
       }
 
       // Ensure both experience and work_experience exist
-      if (data.experience && !data.work_experience) {
-        data.work_experience = data.experience;
-      } else if (data.work_experience && !data.experience) {
-        data.experience = data.work_experience;
+      if (normalized.experience && !normalized.work_experience) {
+        normalized.work_experience = [...normalized.experience];
+      } else if (normalized.work_experience && !normalized.experience) {
+        normalized.experience = [...normalized.work_experience];
       }
 
-      // Ensure arrays exist
-      if (!data.experience) data.experience = [];
-      if (!data.work_experience) data.work_experience = [];
-      if (!data.education) data.education = [];
-      if (!data.skills) data.skills = [];
+      // Ensure all required arrays exist
+      if (!normalized.experience) normalized.experience = [];
+      if (!normalized.work_experience) normalized.work_experience = [];
+      if (!normalized.education) normalized.education = [];
+      if (!normalized.skills) normalized.skills = [];
+      if (!normalized.projects) normalized.projects = [];
+      if (!normalized.languages) normalized.languages = [];
+      if (!normalized.certifications) normalized.certifications = [];
 
-      console.log('✅ Profile data normalized');
-      return data;
+      // Ensure summary exists
+      if (!normalized.summary) normalized.summary = '';
+
+      // Ensure technical_skills exists if skills are present
+      if (normalized.skills.length > 0 && !normalized.technical_skills) {
+        normalized.technical_skills = [...normalized.skills];
+      }
+
+      console.log('✅ Profile data normalized with structure:', {
+        hasPersonalInfo: !!normalized.personal_info && Object.keys(normalized.personal_info).length > 0,
+        hasPersonal: !!normalized.personal && Object.keys(normalized.personal).length > 0,
+        experienceCount: normalized.experience?.length || 0,
+        workExperienceCount: normalized.work_experience?.length || 0,
+        educationCount: normalized.education?.length || 0,
+        skillsCount: normalized.skills?.length || 0,
+        summaryLength: normalized.summary?.length || 0
+      });
+
+      return normalized;
+    }
+
+    createEmptyProfileData() {
+      return {
+        personal_info: {},
+        personal: {},
+        summary: '',
+        experience: [],
+        work_experience: [],
+        education: [],
+        skills: [],
+        technical_skills: [],
+        projects: [],
+        languages: [],
+        certifications: []
+      };
     }
 
     async handlePageAnalysis(sendResponse) {

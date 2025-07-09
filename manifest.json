@@ -67,7 +67,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["icons/*", "js/modules/linkedinExtractor.js"],
+      "resources": ["icons/*", "js/modules/linkedinExtractor.js", "js/modules/*"],
       "matches": ["<all_urls>"]
     }
   ]

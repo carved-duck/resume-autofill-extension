@@ -63,6 +63,29 @@ export class UiManager {
     const dataPreview = this.elements.dataPreview;
     const noDataMessage = document.getElementById('no-data-message');
 
+    console.log('📊 UiManager.showResumeData called with:', {
+      data: data,
+      dataKeys: Object.keys(data || {}),
+      hasPersonalInfo: !!data?.personal_info,
+      hasPersonal: !!data?.personal,
+      personalInfoKeys: Object.keys(data?.personal_info || {}),
+      personalKeys: Object.keys(data?.personal || {}),
+      hasWorkExperience: !!data?.work_experience,
+      workExperienceCount: data?.work_experience?.length || 0,
+      hasEducation: !!data?.education,
+      educationCount: data?.education?.length || 0,
+      hasSkills: !!data?.skills,
+      skillsCount: data?.skills?.length || 0,
+      hasSummary: !!data?.summary,
+      summaryLength: data?.summary?.length || 0
+    });
+
+    if (!data) {
+      console.log('⚠️ No data provided, showing no data message');
+      this.showNoDataMessage();
+      return;
+    }
+
     // Show resume data section
     resumeDataDiv.style.display = 'block';
     if (noDataMessage) noDataMessage.style.display = 'none';
@@ -70,34 +93,53 @@ export class UiManager {
 
     // Generate preview HTML
     let previewHtml = '<div class="data-section">';
+    console.log('🎨 Starting preview HTML generation...');
 
     // Personal Information - handle both data structures
     const personalInfo = data.personal_info || data.personal || {};
+    console.log('👤 Personal info analysis:', {
+      hasPersonalInfo: !!data.personal_info,
+      hasPersonal: !!data.personal,
+      personalInfoKeys: Object.keys(data.personal_info || {}),
+      personalKeys: Object.keys(data.personal || {}),
+      selectedPersonalInfo: personalInfo,
+      selectedPersonalInfoKeys: Object.keys(personalInfo)
+    });
+
     if (personalInfo && Object.keys(personalInfo).length > 0) {
+      console.log('✅ Adding personal information section to preview');
       previewHtml += '<div class="data-group">';
       previewHtml += '<h4>👤 Personal Information</h4>';
       previewHtml += '<div class="data-items">';
 
       if (personalInfo.full_name) {
         previewHtml += `<div class="data-item"><strong>Name:</strong> ${personalInfo.full_name}</div>`;
+        console.log('✅ Added name to preview');
       }
       if (personalInfo.email) {
         previewHtml += `<div class="data-item"><strong>Email:</strong> ${personalInfo.email}</div>`;
+        console.log('✅ Added email to preview');
       }
       if (personalInfo.phone) {
         previewHtml += `<div class="data-item"><strong>Phone:</strong> ${personalInfo.phone}</div>`;
+        console.log('✅ Added phone to preview');
       }
       if (personalInfo.location) {
         previewHtml += `<div class="data-item"><strong>Location:</strong> ${personalInfo.location}</div>`;
+        console.log('✅ Added location to preview');
       }
       if (personalInfo.headline) {
         previewHtml += `<div class="data-item"><strong>Headline:</strong> ${personalInfo.headline}</div>`;
+        console.log('✅ Added headline to preview');
       }
       if (personalInfo.linkedin) {
         previewHtml += `<div class="data-item"><strong>LinkedIn:</strong> <a href="${personalInfo.linkedin}" target="_blank" style="color: #fff; text-decoration: underline;">Profile</a></div>`;
+        console.log('✅ Added LinkedIn to preview');
       }
 
       previewHtml += '</div></div>';
+    } else {
+      console.log('⚠️ No personal information found to display');
     }
 
     // Professional Summary
@@ -236,7 +278,156 @@ export class UiManager {
     }
 
     previewHtml += '</div>';
+    
+    console.log('🎨 Final preview HTML:', {
+      htmlLength: previewHtml.length,
+      htmlPreview: previewHtml.substring(0, 500) + '...',
+      isEmpty: previewHtml.trim() === '<div class="data-section"></div>'
+    });
+    
     dataPreview.innerHTML = previewHtml;
+    console.log('✅ Preview HTML set in DOM element');
+  }
+
+  showDetailedDataModal(data) {
+    console.log('🔍 Showing detailed data modal with:', data);
+    
+    const modal = document.getElementById('dataModal');
+    const modalBody = document.getElementById('dataModalBody');
+    
+    if (!modal || !modalBody) {
+      console.error('❌ Data modal not found');
+      return;
+    }
+
+    // Generate detailed HTML content
+    let modalHtml = '<div class="detailed-data-content">';
+    
+    // Add JSON view for debugging
+    modalHtml += '<div class="data-section">';
+    modalHtml += '<h3>📋 Complete Extracted Data</h3>';
+    modalHtml += '<div class="json-data">';
+    modalHtml += JSON.stringify(data, null, 2);
+    modalHtml += '</div>';
+    modalHtml += '</div>';
+    
+    // Add structured view
+    modalHtml += '<div class="data-section">';
+    modalHtml += '<h3>📊 Structured View</h3>';
+    modalHtml += this.generateStructuredView(data);
+    modalHtml += '</div>';
+    
+    modalHtml += '</div>';
+    
+    modalBody.innerHTML = modalHtml;
+    modal.style.display = 'block';
+    
+    // Set up close button
+    const closeBtn = document.getElementById('closeDataModal');
+    if (closeBtn) {
+      closeBtn.onclick = () => {
+        modal.style.display = 'none';
+      };
+    }
+    
+    // Close modal when clicking outside
+    window.onclick = (event) => {
+      if (event.target === modal) {
+        modal.style.display = 'none';
+      }
+    };
+  }
+
+  generateStructuredView(data) {
+    let html = '<div class="structured-view">';
+    
+    // Personal Information
+    if (data.personal_info && Object.keys(data.personal_info).length > 0) {
+      html += '<div class="data-group">';
+      html += '<h4>👤 Personal Information</h4>';
+      html += '<div class="data-items">';
+      
+      for (const [key, value] of Object.entries(data.personal_info)) {
+        if (value) {
+          html += `<div class="data-item"><strong>${key}:</strong> ${value}</div>`;
+        }
+      }
+      
+      html += '</div></div>';
+    }
+    
+    // Summary
+    if (data.summary && data.summary.length > 0) {
+      html += '<div class="data-group">';
+      html += '<h4>📝 Summary</h4>';
+      html += '<div class="data-items">';
+      html += `<div class="data-item">${data.summary}</div>`;
+      html += '</div></div>';
+    }
+    
+    // Work Experience
+    if (data.work_experience && data.work_experience.length > 0) {
+      html += '<div class="data-group">';
+      html += '<h4>💼 Work Experience</h4>';
+      html += '<div class="data-items">';
+      
+      data.work_experience.forEach((exp, index) => {
+        html += `<div class="data-item">`;
+        html += `<strong>${exp.title || 'Position'}</strong>`;
+        if (exp.company) html += ` at ${exp.company}`;
+        if (exp.dates) html += ` (${exp.dates})`;
+        if (exp.location) html += ` - ${exp.location}`;
+        html += `</div>`;
+      });
+      
+      html += '</div></div>';
+    }
+    
+    // Education
+    if (data.education && data.education.length > 0) {
+      html += '<div class="data-group">';
+      html += '<h4>🎓 Education</h4>';
+      html += '<div class="data-items">';
+      
+      data.education.forEach((edu, index) => {
+        html += `<div class="data-item">`;
+        if (edu.degree) html += `<strong>${edu.degree}</strong> `;
+        if (edu.school) html += `at ${edu.school}`;
+        if (edu.year) html += ` (${edu.year})`;
+        html += `</div>`;
+      });
+      
+      html += '</div></div>';
+    }
+    
+    // Skills
+    if (data.skills && data.skills.length > 0) {
+      html += '<div class="data-group">';
+      html += '<h4>🛠️ Skills</h4>';
+      html += '<div class="data-items">';
+      html += `<div class="data-item">${data.skills.join(', ')}</div>`;
+      html += '</div></div>';
+    }
+    
+    // Certifications
+    if (data.certifications && data.certifications.length > 0) {
+      html += '<div class="data-group">';
+      html += '<h4>🏆 Certifications</h4>';
+      html += '<div class="data-items">';
+      
+      data.certifications.forEach((cert, index) => {
+        html += `<div class="data-item">`;
+        html += `<strong>${cert.name || cert}</strong>`;
+        if (cert.issuer) html += ` by ${cert.issuer}`;
+        if (cert.year) html += ` (${cert.year})`;
+        html += `</div>`;
+      });
+      
+      html += '</div></div>';
+    }
+    
+    html += '</div>';
+    return html;
   }
 
   showNoDataMessage() {

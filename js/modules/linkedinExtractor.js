@@ -315,45 +315,169 @@ export class LinkedInExtractor {
     console.log('📝 Extracting summary/about...');
 
     try {
+      // First, look for the About section
+      const aboutSection = document.querySelector('#about');
+      if (!aboutSection) {
+        console.log('⚠️ About section not found');
+        
+        // Debug: Let's see what sections we can find
+        const allSections = document.querySelectorAll('section');
+        console.log('🔍 Found sections:', allSections.length);
+        
+        const allIds = Array.from(document.querySelectorAll('[id]')).map(el => el.id).filter(id => id.toLowerCase().includes('about'));
+        console.log('🔍 IDs containing "about":', allIds);
+        
+        const allH2s = Array.from(document.querySelectorAll('h2')).map(h2 => h2.textContent.trim()).filter(text => text.toLowerCase().includes('about'));
+        console.log('🔍 H2s containing "about":', allH2s);
+        
+        return '';
+      }
+
+      console.log('✅ About section found, scrolling to it...');
+      
+      // Scroll to the about section to ensure it's loaded
+      aboutSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await this.wait(1000);
+
+      // Debug: Show what's immediately after the About section
+      console.log('🔍 Analyzing About section structure...');
+      const nextSibling = aboutSection.nextElementSibling;
+      console.log('📍 Next sibling:', nextSibling ? nextSibling.tagName + ' ' + nextSibling.className : 'none');
+      
+      if (nextSibling) {
+        console.log('📍 Next sibling HTML preview:', nextSibling.innerHTML.substring(0, 200) + '...');
+      }
+
+      // Look for the content in the next sibling or within a container
       const aboutSelectors = [
+        '#about + .pv-shared-text-with-see-more',
         '#about ~ .pv-shared-text-with-see-more',
+        '#about + * .pv-shared-text-with-see-more',
+        '#about ~ * .pv-shared-text-with-see-more',
+        '#about + .pvs-list__outer-container',
+        '#about ~ .pvs-list__outer-container',
+        '#about + * .pvs-list__outer-container',
+        '#about ~ * .pvs-list__outer-container',
+        // Look for content more deeply nested after about
+        '#about ~ div .pv-shared-text-with-see-more',
+        '#about ~ div .pvs-list__outer-container',
+        '#about ~ * .pv-shared-text-with-see-more',
+        '#about ~ * .pvs-list__outer-container',
+        // Add more generic selectors
+        '#about + div',
+        '#about ~ div',
+        '#about + section',
+        '#about ~ section'
+      ];
+
+      console.log('🔍 Searching for about content with selectors...');
+
+      for (const selector of aboutSelectors) {
+        const aboutContent = document.querySelector(selector);
+        if (aboutContent) {
+          console.log(`✅ Found about content with selector: ${selector}`);
+          console.log('📍 About content HTML preview:', aboutContent.innerHTML.substring(0, 300) + '...');
+          
+          // Click "see more" if present
+          const seeMoreButton = aboutContent.querySelector('button[aria-label*="see more"], .inline-show-more-text__button, button[aria-expanded="false"]');
+          if (seeMoreButton) {
+            try {
+              console.log('🔍 Found "see more" button, clicking...');
+              seeMoreButton.click();
+              await this.wait(500);
+              console.log('✅ Expanded about section');
+            } catch (e) {
+              console.log('⚠️ Could not expand about section:', e.message);
+            }
+          }
+
+          // Extract text content with multiple strategies
+          const textSelectors = [
+            'span[aria-hidden="true"]',
+            '.inline-show-more-text span',
+            '.pv-about__summary-text',
+            '.pv-shared-text-with-see-more span',
+            '.pvs-list__outer-container span',
+            'p',
+            'div'
+          ];
+
+          for (const textSelector of textSelectors) {
+            const textElement = aboutContent.querySelector(textSelector);
+            if (textElement) {
+              const summaryText = textElement.textContent.trim();
+              if (summaryText && summaryText.length > 20) {
+                console.log(`✅ Found summary with ${textSelector}: ${summaryText.substring(0, 100)}...`);
+                return summaryText;
+              }
+            }
+          }
+
+          // If no text found in nested elements, try the content directly
+          const directText = aboutContent.textContent.trim();
+          if (directText && directText.length > 20) {
+            console.log(`✅ Found summary (direct): ${directText.substring(0, 100)}...`);
+            return directText;
+          }
+        } else {
+          console.log(`⚠️ Selector not found: ${selector}`);
+        }
+      }
+
+      // Fallback: Look for any text content near the about section
+      console.log('🔍 Trying fallback selectors...');
+      const fallbackSelectors = [
         '.pv-about-section .pv-about__summary-text',
         '.pv-oc .pv-about-section',
         '[data-test-id="about-section"]',
         '.scaffold-layout__main section[data-section="summary"]',
-        '.about-section',
-        '#about',
-        '.pv-about__summary-text'
+        '.about-section'
       ];
 
-      for (const selector of aboutSelectors) {
-        const aboutSection = document.querySelector(selector);
-      if (aboutSection) {
-        // Click "see more" if present
-          const seeMoreButton = aboutSection.querySelector('button[aria-label*="see more"], .inline-show-more-text__button, button[aria-expanded="false"]');
-        if (seeMoreButton) {
-            try {
-          seeMoreButton.click();
-              await this.wait(500);
-              console.log('✅ Expanded about section');
-            } catch (e) {
-              console.log('⚠️ Could not expand about section');
-            }
+      for (const selector of fallbackSelectors) {
+        const fallbackElement = document.querySelector(selector);
+        if (fallbackElement) {
+          const fallbackText = fallbackElement.textContent.trim();
+          if (fallbackText && fallbackText.length > 20) {
+            console.log(`✅ Found summary (fallback): ${fallbackText.substring(0, 100)}...`);
+            return fallbackText;
           }
+        }
+      }
 
-          // Extract text content
-          const textElement = aboutSection.querySelector('span[aria-hidden="true"], .inline-show-more-text span, .pv-about__summary-text, p');
-          if (textElement) {
-            const summaryText = textElement.textContent.trim();
-        if (summaryText && summaryText.length > 20) {
-              console.log(`✅ Found summary: ${summaryText.substring(0, 100)}...`);
+      // Final fallback: Look for "About" text and find content nearby
+      console.log('🔍 Trying final fallback - looking for "About" headers...');
+      const allHeaders = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      for (const header of allHeaders) {
+        if (header.textContent.trim().toLowerCase() === 'about') {
+          console.log('✅ Found "About" header:', header.textContent);
+          
+          // Look for content after this header
+          let nextElement = header.nextElementSibling;
+          while (nextElement) {
+            const text = nextElement.textContent.trim();
+            if (text && text.length > 50) {
+              console.log(`✅ Found summary after About header: ${text.substring(0, 100)}...`);
+              return text;
+            }
+            nextElement = nextElement.nextElementSibling;
+          }
+          
+          // Look for content in parent containers
+          const parentContainer = header.closest('section, div');
+          if (parentContainer) {
+            const containerText = parentContainer.textContent.trim();
+            // Remove the header text and get the rest
+            const summaryText = containerText.replace(header.textContent, '').trim();
+            if (summaryText && summaryText.length > 50) {
+              console.log(`✅ Found summary in parent container: ${summaryText.substring(0, 100)}...`);
               return summaryText;
             }
           }
         }
       }
 
-      console.log('⚠️ No summary found');
+      console.log('⚠️ No summary found after trying all selectors and fallbacks');
       return '';
 
     } catch (error) {
