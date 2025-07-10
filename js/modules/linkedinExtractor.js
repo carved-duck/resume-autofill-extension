@@ -7,7 +7,7 @@ export class LinkedInExtractor {
   }
 
   checkIfLinkedInPage() {
-    return window.location.hostname.includes('linkedin.com');
+    return window.location?.hostname?.includes('linkedin.com') || false;
   }
 
   async extractProfileData() {
@@ -100,15 +100,20 @@ export class LinkedInExtractor {
 
     for (const selector of nameSelectors) {
       let nameEl;
-      if (selector.startsWith('//')) {
-        // XPath selector
-        nameEl = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-      } else {
-        // CSS selector
-        nameEl = document.querySelector(selector);
+      try {
+        if (selector.startsWith('//')) {
+          // XPath selector
+          nameEl = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        } else {
+          // CSS selector
+          nameEl = document.querySelector(selector);
+        }
+      } catch (error) {
+        console.log(`⚠️ Failed to evaluate selector "${selector}":`, error.message);
+        continue;
       }
 
-      if (nameEl && nameEl.textContent.trim()) {
+      if (nameEl && nameEl.textContent?.trim()) {
         const fullName = nameEl.textContent.trim();
         personalInfo.full_name = fullName;
 
@@ -143,13 +148,18 @@ export class LinkedInExtractor {
 
     for (const selector of headlineSelectors) {
       let headlineEl;
-      if (selector.startsWith('//')) {
-        headlineEl = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-      } else {
-        headlineEl = document.querySelector(selector);
+      try {
+        if (selector.startsWith('//')) {
+          headlineEl = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        } else {
+          headlineEl = document.querySelector(selector);
+        }
+      } catch (error) {
+        console.log(`⚠️ Failed to evaluate headline selector "${selector}":`, error.message);
+        continue;
       }
 
-      if (headlineEl && headlineEl.textContent.trim()) {
+      if (headlineEl && headlineEl.textContent?.trim()) {
         const headline = headlineEl.textContent.trim();
         // Skip if this looks like a name instead of headline
         if (!headline.includes(personalInfo.full_name || '')) {
@@ -180,13 +190,18 @@ export class LinkedInExtractor {
 
     for (const selector of locationSelectors) {
       let locationEl;
-      if (selector.startsWith('//')) {
-        locationEl = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-      } else {
-        locationEl = document.querySelector(selector);
+      try {
+        if (selector.startsWith('//')) {
+          locationEl = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        } else {
+          locationEl = document.querySelector(selector);
+        }
+      } catch (error) {
+        console.log(`⚠️ Failed to evaluate location selector "${selector}":`, error.message);
+        continue;
       }
 
-      if (locationEl && locationEl.textContent.trim()) {
+      if (locationEl && locationEl.textContent?.trim()) {
         const location = locationEl.textContent.trim();
         // Basic validation that this looks like a location
         if (location.length < 100 && !location.includes('@') && !location.includes('http')) {
@@ -198,7 +213,7 @@ export class LinkedInExtractor {
     }
 
     // LinkedIn URL
-    personalInfo.linkedin = window.location.href.split('?')[0];
+    personalInfo.linkedin = window.location?.href?.split('?')[0] || '';
 
     console.log('✅ Extracted personal info from LinkedIn');
     return personalInfo;
@@ -256,7 +271,7 @@ export class LinkedInExtractor {
         // Extract email
         let foundEmail = false;
         const emailElement = modalContent.querySelector('a[href^="mailto:"]');
-        if (emailElement) {
+        if (emailElement && emailElement.href) {
           const email = emailElement.href.replace('mailto:', '');
           personalInfo.email = email;
           foundEmail = true;
@@ -273,7 +288,7 @@ export class LinkedInExtractor {
         if (!websiteElement) {
           websiteElement = modalContent.querySelector('a[href^="http"]:not([href*="linkedin"])');
         }
-        if (websiteElement) {
+        if (websiteElement && websiteElement.href) {
           const website = websiteElement.href;
           personalInfo.website = website;
           foundWebsite = true;
@@ -286,7 +301,7 @@ export class LinkedInExtractor {
         // Extract phone (if present)
         let foundPhone = false;
         const phoneElement = modalContent.querySelector('span[aria-label*="phone"], .ci-phone, .contact-info .ci-phone, .pv-contact-info__contact-type.ci-phone span.t-14');
-        if (phoneElement) {
+        if (phoneElement && phoneElement.textContent?.trim()) {
           const phone = phoneElement.textContent.trim();
           personalInfo.phone = phone;
           foundPhone = true;
@@ -319,17 +334,6 @@ export class LinkedInExtractor {
       const aboutSection = document.querySelector('#about');
       if (!aboutSection) {
         console.log('⚠️ About section not found');
-        
-        // Debug: Let's see what sections we can find
-        const allSections = document.querySelectorAll('section');
-        console.log('🔍 Found sections:', allSections.length);
-        
-        const allIds = Array.from(document.querySelectorAll('[id]')).map(el => el.id).filter(id => id.toLowerCase().includes('about'));
-        console.log('🔍 IDs containing "about":', allIds);
-        
-        const allH2s = Array.from(document.querySelectorAll('h2')).map(h2 => h2.textContent.trim()).filter(text => text.toLowerCase().includes('about'));
-        console.log('🔍 H2s containing "about":', allH2s);
-        
         return '';
       }
 
@@ -378,6 +382,14 @@ export class LinkedInExtractor {
           console.log(`✅ Found about content with selector: ${selector}`);
           console.log('📍 About content HTML preview:', aboutContent.innerHTML.substring(0, 300) + '...');
           
+          // Skip if this looks like a header container (has h2 but minimal text)
+          const hasHeader = aboutContent.querySelector('h2, h3, h4');
+          const textContent = aboutContent.textContent.trim();
+          if (hasHeader && textContent.length < 100) {
+            console.log('⚠️ Skipping header container, looking for actual content...');
+            continue;
+          }
+          
           // Click "see more" if present
           const seeMoreButton = aboutContent.querySelector('button[aria-label*="see more"], .inline-show-more-text__button, button[aria-expanded="false"]');
           if (seeMoreButton) {
@@ -406,7 +418,7 @@ export class LinkedInExtractor {
             const textElement = aboutContent.querySelector(textSelector);
             if (textElement) {
               const summaryText = textElement.textContent.trim();
-              if (summaryText && summaryText.length > 20) {
+              if (summaryText && summaryText.length > 100) { // Increased length requirement
                 console.log(`✅ Found summary with ${textSelector}: ${summaryText.substring(0, 100)}...`);
                 return summaryText;
               }
@@ -415,12 +427,38 @@ export class LinkedInExtractor {
 
           // If no text found in nested elements, try the content directly
           const directText = aboutContent.textContent.trim();
-          if (directText && directText.length > 20) {
+          if (directText && directText.length > 100) { // Increased length requirement
             console.log(`✅ Found summary (direct): ${directText.substring(0, 100)}...`);
             return directText;
           }
         } else {
           console.log(`⚠️ Selector not found: ${selector}`);
+        }
+      }
+      
+      // Alternative approach: Look for all divs after About and find the one with substantial text
+      console.log('🔍 Trying alternative approach - looking for content-rich divs after About...');
+      const aboutEl = document.querySelector('#about');
+      if (aboutEl) {
+        let currentElement = aboutEl.nextElementSibling;
+        let attempts = 0;
+        
+        while (currentElement && attempts < 10) {
+          const textContent = currentElement.textContent.trim();
+          if (textContent.length > 100) {
+            // Clean up the text by removing "see more" and extra whitespace
+            const cleanedText = textContent
+              .replace(/\s*…?\.?\s*see\s+more\s*/gi, '')
+              .replace(/\s*\.\.\.\s*see\s+more\s*/gi, '')
+              .replace(/\s*show\s+more\s*/gi, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            
+            console.log(`✅ Found substantial content in element ${attempts + 1}: ${cleanedText.substring(0, 100)}...`);
+            return cleanedText;
+          }
+          currentElement = currentElement.nextElementSibling;
+          attempts++;
         }
       }
 
@@ -454,13 +492,15 @@ export class LinkedInExtractor {
           
           // Look for content after this header
           let nextElement = header.nextElementSibling;
-          while (nextElement) {
+          let headerAttempts = 0;
+          while (nextElement && headerAttempts < 15) {
             const text = nextElement.textContent.trim();
             if (text && text.length > 50) {
               console.log(`✅ Found summary after About header: ${text.substring(0, 100)}...`);
               return text;
             }
             nextElement = nextElement.nextElementSibling;
+            headerAttempts++;
           }
           
           // Look for content in parent containers
