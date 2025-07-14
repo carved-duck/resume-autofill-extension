@@ -590,120 +590,83 @@ export class LinkedInExtractor {
   }
 
   async extractExperienceBasic() {
-    console.log('💼 Extracting experience using live DOM and text matching...');
+    console.log('💼 Extracting experience from LinkedIn profile...');
 
     const experiences = [];
 
     try {
-      // First, try to find the experience section and use DOM extraction
+      // Find the experience section
       const expSection = document.querySelector('#experience');
-      if (expSection) {
-        console.log('✅ Found experience section, scrolling to it...');
-        expSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await this.wait(1000);
-        
-        // Look for experience items in the DOM
-        const experienceItems = expSection.querySelectorAll('.pvs-list__item--line-separated, .pvs-entity, .experience-item');
-        
-        for (const item of experienceItems) {
-          try {
-            const titleElement = item.querySelector('.pvs-entity__path-node, .experience-item__title, [data-field="title"]');
-            const companyElement = item.querySelector('.pvs-entity__caption-wrapper, .experience-item__subtitle, [data-field="subtitle"]');
-            
-            if (titleElement && companyElement) {
-              const title = titleElement.textContent.trim();
-              const companyText = companyElement.textContent.trim();
-              
-              // Extract just the company name (remove extra text like "Full-time")
-              const company = companyText.split('·')[0].trim();
-              
-              if (title && company && title.length > 2 && company.length > 2) {
-                experiences.push({
-                  title: title,
-                  company: company,
-                  date_range: '',
-                  location: 'Tokyo, Japan',
-                  description: `${title} at ${company}`
-                });
-                console.log(`✅ Found via DOM: ${title} at ${company}`);
-              }
-            }
-          } catch (e) {
-            console.log('⚠️ Failed to parse experience item:', e.message);
-          }
-        }
+      if (!expSection) {
+        console.log('⚠️ Experience section not found');
+        return experiences;
       }
+
+      console.log('✅ Found experience section, scrolling to it...');
+      expSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await this.wait(1500); // Give more time to load
+
+      // Get all text from the experience section and analyze it
+      const experienceText = expSection.textContent || '';
+      console.log(`📍 Experience section text (first 300 chars): ${experienceText.substring(0, 300)}...`);
       
-      // If DOM extraction didn't work, fall back to text-based matching
-      if (experiences.length === 0) {
-        console.log('🔍 DOM extraction failed, trying text-based extraction...');
+      // Split into meaningful lines
+      const lines = experienceText
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 2 && line.length < 150)
+        .filter(line => 
+          !line.includes('Experience') && // Skip section header
+          !line.includes('Show all') && // Skip "Show all" buttons
+          !line.includes('ago') && // Skip "2 months ago" type text
+          !line.includes('connection') && // Skip connection text
+          !line.includes('mutual') && // Skip mutual connections
+          !line.match(/^\d+$/) && // Skip standalone numbers
+          !line.includes('yrs') && // Skip "2 yrs" type text
+          !line.includes('mos') // Skip "6 mos" type text
+        );
+
+      console.log(`📍 Filtered lines: ${lines.slice(0, 10).join(' | ')}`);
+
+      // Simple approach: Look for pairs of lines that could be job title + company
+      for (let i = 0; i < lines.length - 1; i++) {
+        const possibleTitle = lines[i];
+        const possibleCompany = lines[i + 1];
         
-        // Get all text content from the page
-        const pageText = document.body.textContent || '';
-        
-        // Look for the specific job patterns we know exist based on your screenshot
-        const jobPatterns = [
-          { title: 'English Language Teacher', company: 'Anchor Studio Corporation', dateRange: 'Jun 2023 - Mar 2025' },
-          { title: 'English Teacher', company: 'AEON Corporation', dateRange: 'Sep 2018 - Mar 2023' },
-          { title: 'English Teacher', company: 'Gaba Corporation', dateRange: 'Nov 2019 - Aug 2020' }
-        ];
-        
-        // Check if the page contains these specific patterns
-        for (const pattern of jobPatterns) {
-          if (pageText.includes(pattern.title) && pageText.includes(pattern.company)) {
-            console.log(`✅ Found: ${pattern.title} at ${pattern.company}`);
-            
+        // Basic validation for job title and company pair
+        if (possibleTitle.length > 3 && possibleTitle.length < 80 &&
+            possibleCompany.length > 3 && possibleCompany.length < 80 &&
+            possibleTitle !== possibleCompany &&
+            !possibleTitle.includes('·') && // Skip lines with metadata
+            !possibleCompany.includes('Full-time') && // Skip employment type lines
+            !possibleCompany.includes('Part-time')) {
+          
+          // Additional check: title shouldn't look like a date or duration
+          if (!possibleTitle.match(/\d{4}/) && !possibleTitle.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i)) {
             experiences.push({
-              title: pattern.title,
-              company: pattern.company,
-              date_range: pattern.dateRange,
-              location: 'Tokyo, Japan',
-              description: `${pattern.title} position at ${pattern.company}`
+              title: possibleTitle,
+              company: possibleCompany,
+              date_range: '',
+              location: '',
+              description: `${possibleTitle} at ${possibleCompany}`
             });
-          }
-        }
-        
-        // Also try to find other common job titles
-        const commonJobTitles = ['Full Stack Developer', 'Web Developer', 'Software Engineer', 'Frontend Developer', 'Backend Developer', 'Developer', 'Engineer', 'Manager', 'Analyst', 'Specialist'];
-        
-        for (const title of commonJobTitles) {
-          if (pageText.includes(title)) {
-            console.log(`✅ Found job title in text: ${title}`);
-            // Try to find company name near the job title
-            const lines = pageText.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].includes(title)) {
-                // Look for company in nearby lines
-                for (let j = Math.max(0, i-3); j < Math.min(lines.length, i+4); j++) {
-                  const line = lines[j].trim();
-                  if (line && line !== title && line.length > 3 && line.length < 100) {
-                    // Skip if it looks like a date or other metadata
-                    if (!line.match(/\d{4}|present|current|full.?time|part.?time|months?|years?/i)) {
-                      experiences.push({
-                        title: title,
-                        company: line,
-                        date_range: '',
-                        location: 'Tokyo, Japan',
-                        description: `${title} at ${line}`
-                      });
-                      console.log(`✅ Added: ${title} at ${line}`);
-                      break;
-                    }
-                  }
-                }
-                break;
-              }
-            }
+            console.log(`✅ Found potential experience: "${possibleTitle}" at "${possibleCompany}"`);
           }
         }
       }
       
-      console.log(`✅ Extracted ${experiences.length} experiences`);
+      // Remove duplicates based on title + company combination
+      const uniqueExperiences = experiences.filter((exp, index, self) => 
+        index === self.findIndex(e => e.title === exp.title && e.company === exp.company)
+      );
+      
+      console.log(`✅ Extracted ${uniqueExperiences.length} unique experiences`);
+      return uniqueExperiences;
+      
     } catch (error) {
       console.error('❌ Failed to extract experience:', error);
+      return experiences;
     }
-
-    return experiences;
   }
 
   async extractEducationBasic() {

@@ -7,19 +7,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a Chrome extension that automatically fills job application forms using uploaded resume data. The extension consists of a Python backend server for PDF parsing and a JavaScript frontend with Chrome extension components.
 
 ## Development Commands
-1. Fix the first part of the linkedin scraper (finished)
-2. Get to being able to scrape the rest of the linkedin page for information. (completed)
-   - **Part 2 Complete**: Enhanced experience scraping using live DOM extraction
-   - **Key Breakthrough**: Discovered LinkedIn uses obfuscated HTML with randomized class names
-   - **Solution**: Implemented text-based pattern matching instead of HTML parsing
-   - **Current Implementation**:
-     - Uses `document.body.textContent` to get all visible text
-     - Matches specific job patterns from the actual profile (English Language Teacher, English Teacher, etc.)
-     - Extracts company names (Anchor Studio Corporation, AEON Corporation, Gaba Corporation)
-     - Includes date ranges and location information
-     - Falls back to generic pattern matching for other profiles
-   - **Lesson Learned**: Always scrape the live DOM, not static HTML fetches
-   - **Status**: Successfully extracting experience data from LinkedIn profiles
+1. ✅ Fix the first part of the linkedin scraper (finished)
+2. ✅ Get to being able to scrape the rest of the linkedin page for information (Part 2 complete)
+
+### LinkedIn Scraper Status - Part 2 Complete
+**Single Unified Extractor**: `js/modules/linkedinExtractor.js`
+- ✅ **Personal Info**: Name, headline, location, email, website extraction working
+- ✅ **Summary/About**: Successfully extracts full About section content  
+- ✅ **Experience**: Text-based extraction from experience section only
+- ✅ **Contact Info**: Modal-based email/website extraction working
+
+**Key Technical Breakthrough**:
+- **Problem**: LinkedIn uses obfuscated HTML with randomized class names
+- **Solution**: Live DOM text extraction instead of HTML parsing
+- **Approach**: Extract text from specific sections (`#about`, `#experience`) rather than entire page
+- **Lesson**: Always scrape live DOM, avoid static HTML fetches or page navigation
+
+**Current Implementation**:
+- Consolidated from 3 extractors to 1 clean extractor
+- Focuses text extraction within specific LinkedIn sections
+- Filters out noise (buttons, metadata, "people you may know" content)
+- Uses line-by-line analysis to find job title + company pairs
+- Includes duplicate removal and validation
 
 ### Backend Server
 ```bash
