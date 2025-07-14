@@ -7,6 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a Chrome extension that automatically fills job application forms using uploaded resume data. The extension consists of a Python backend server for PDF parsing and a JavaScript frontend with Chrome extension components.
 
 ## Development Commands
+1. Fix the first part of the linkedin scraper (finished)
+2. Get to being able to scrape the rest of the linkedin page for information.
+   - Enhanced experience scraping to extract comprehensive job information including:
+     - Job title and company (existing)
+     - Date ranges (start/end dates)
+     - Location information
+     - Job descriptions
+   - Uses multiple fallback selectors for robust extraction across LinkedIn's dynamic UI
 
 ### Backend Server
 ```bash

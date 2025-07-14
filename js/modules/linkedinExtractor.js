@@ -664,68 +664,222 @@ export class LinkedInExtractor {
   }
 
   async extractExperienceBasic() {
-    console.log('💼 Extracting basic experience info...');
+    console.log('💼 Extracting comprehensive experience info using details page...');
 
     const experiences = [];
 
     try {
-      // Look for experience section
-      const expSection = document.querySelector('#experience, .experience-section');
-      if (!expSection) {
-        console.log('⚠️ Experience section not found');
+      // Navigate to the experience details page (like the other scraper does)
+      const currentUrl = window.location.href;
+      const baseUrl = currentUrl.split('/details/')[0].split('?')[0];
+      const experienceUrl = `${baseUrl}/details/experience/`;
+      
+      console.log(`🔍 Navigating to experience details page: ${experienceUrl}`);
+      
+      // Navigate to the experience details page
+      window.location.href = experienceUrl;
+      
+      // Wait for the page to load
+      await this.wait(3000);
+      
+      // Wait for the main content to load
+      let mainElement = null;
+      for (let i = 0; i < 20; i++) {
+        mainElement = document.querySelector('main');
+        if (mainElement) break;
+        await this.wait(500);
+      }
+      
+      if (!mainElement) {
+        console.log('⚠️ Main element not found on details page');
         return experiences;
       }
-
-      // Scroll to experience section
-      expSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      console.log('✅ Main element found, looking for experience container...');
+      
+      // Scroll to load all content
+      window.scrollTo(0, Math.ceil(document.body.scrollHeight/2));
       await this.wait(1000);
-
-      // Look for "Show all" button
-      const expandButtons = [
-        'button[aria-label*="Show all"]',
-        '.pvs-list__footer-wrapper button',
-        '.pvs-list__see-more-button'
+      window.scrollTo(0, document.body.scrollHeight);
+      await this.wait(1000);
+      
+      // Look for the experience list container (using selectors from the other scraper)
+      let mainList = null;
+      const containerSelectors = [
+        '.pvs-list__container',
+        '[data-view-name="profile-component-entity"]',
+        '.pvs-list__paged-list-item',
+        'ul[data-view-name="profile-component-entity"]'
       ];
-
-      for (const selector of expandButtons) {
+      
+      for (const selector of containerSelectors) {
         try {
-          const expandButton = expSection.querySelector(selector);
-          if (expandButton && expandButton.offsetParent !== null) {
-            console.log(`🎯 Found experience expand button: ${selector}`);
-            expandButton.click();
-            await this.wait(2000);
-            break;
-          }
-        } catch (e) {
-          console.log(`⚠️ Failed to expand experience with selector ${selector}:`, e.message);
-        }
-      }
-
-      // Extract basic experience info
-      const expElements = expSection.querySelectorAll('.pvs-list__item--line-separated, .pvs-entity');
-
-      for (const exp of expElements) {
-        try {
-          const titleElement = exp.querySelector('.pvs-entity__path-node, .experience-item__title');
-          const companyElement = exp.querySelector('.pvs-entity__path-node + span, .experience-item__company');
-
-          if (titleElement) {
-            // Use the names the UI expects
-            const expData = {
-              title: titleElement.textContent.trim(),
-              company: companyElement ? companyElement.textContent.trim() : null
-            };
-
-            if (expData.title && expData.title.length > 2) {
-              experiences.push(expData);
+          const elements = mainElement.querySelectorAll(selector);
+          if (elements.length > 0) {
+            console.log(`✅ Found ${elements.length} elements with selector: ${selector}`);
+            if (selector === '.pvs-list__container') {
+              mainList = elements[0];
+              break;
             }
           }
         } catch (e) {
-          console.log(`⚠️ Failed to parse experience:`, e.message);
+          console.log(`⚠️ Error with selector ${selector}:`, e.message);
+        }
+      }
+      
+      if (!mainList) {
+        console.log('⚠️ Experience list container not found');
+        return experiences;
+      }
+      
+      console.log('✅ Experience list container found');
+      
+      // Find experience items (using approach from other scraper)
+      const experienceItems = mainList.querySelectorAll('.pvs-list__paged-list-item');
+      
+      console.log(`🔍 Found ${experienceItems.length} experience items to process`);
+
+      for (let i = 0; i < experienceItems.length; i++) {
+        const experienceItem = experienceItems[i];
+        try {
+          console.log(`📝 Processing experience ${i + 1}/${experienceItems.length}`);
+          
+          // Find the main position container (following the other scraper's approach)
+          const positionContainer = experienceItem.querySelector('div[data-view-name="profile-component-entity"]');
+          if (!positionContainer) {
+            console.log('⚠️ Position container not found, skipping');
+            continue;
+          }
+          
+          // Get the main elements (logo + details)
+          const elements = positionContainer.querySelectorAll(':scope > *');
+          if (elements.length < 2) {
+            console.log('⚠️ Not enough elements in position container, skipping');
+            continue;
+          }
+          
+          const companyLogoElement = elements[0];
+          const positionDetails = elements[1];
+          
+          // Extract company LinkedIn URL
+          let companyUrl = null;
+          try {
+            const companyLink = companyLogoElement.querySelector('a');
+            if (companyLink) {
+              companyUrl = companyLink.href;
+            }
+          } catch (e) {
+            console.log('⚠️ Could not extract company URL:', e.message);
+          }
+          
+          // Get position details structure
+          const positionDetailsList = positionDetails.querySelectorAll(':scope > *');
+          const positionSummaryDetails = positionDetailsList[0];
+          const positionSummaryText = positionDetailsList[1];
+          
+          if (!positionSummaryDetails) {
+            console.log('⚠️ Position summary details not found, skipping');
+            continue;
+          }
+          
+          // Extract the main position information
+          const outerPositions = positionSummaryDetails.querySelector(':scope > *')?.querySelectorAll(':scope > *') || [];
+          
+          let title = '';
+          let company = '';
+          let workTimes = '';
+          let location = '';
+          
+          // Parse based on number of elements (following the other scraper's logic)
+          if (outerPositions.length === 4) {
+            title = outerPositions[0]?.querySelector('span')?.textContent?.trim() || '';
+            company = outerPositions[1]?.querySelector('span')?.textContent?.trim() || '';
+            workTimes = outerPositions[2]?.querySelector('span')?.textContent?.trim() || '';
+            location = outerPositions[3]?.querySelector('span')?.textContent?.trim() || '';
+          } else if (outerPositions.length === 3) {
+            const thirdElementText = outerPositions[2]?.textContent?.trim() || '';
+            if (thirdElementText.includes('·')) {
+              // Third element contains duration info
+              title = outerPositions[0]?.querySelector('span')?.textContent?.trim() || '';
+              company = outerPositions[1]?.querySelector('span')?.textContent?.trim() || '';
+              workTimes = outerPositions[2]?.querySelector('span')?.textContent?.trim() || '';
+              location = '';
+            } else {
+              // Third element is location
+              title = '';
+              company = outerPositions[0]?.querySelector('span')?.textContent?.trim() || '';
+              workTimes = outerPositions[1]?.querySelector('span')?.textContent?.trim() || '';
+              location = outerPositions[2]?.querySelector('span')?.textContent?.trim() || '';
+            }
+          } else if (outerPositions.length >= 1) {
+            title = '';
+            company = outerPositions[0]?.querySelector('span')?.textContent?.trim() || '';
+            workTimes = outerPositions[1]?.querySelector('span')?.textContent?.trim() || '';
+            location = '';
+          }
+          
+          // Parse work times and duration
+          let fromDate = '';
+          let toDate = '';
+          let duration = null;
+          
+          if (workTimes) {
+            const parts = workTimes.split('·');
+            const times = parts[0]?.trim() || '';
+            duration = parts[1]?.trim() || null;
+            
+            // Extract from/to dates
+            const timesSplit = times.split(' ');
+            if (timesSplit.length >= 2) {
+              fromDate = timesSplit.slice(0, 2).join(' ');
+            }
+            if (timesSplit.length >= 5) {
+              toDate = timesSplit.slice(3).join(' ');
+            }
+          }
+          
+          // Extract description
+          let description = '';
+          if (positionSummaryText) {
+            description = positionSummaryText.textContent?.trim() || '';
+          }
+          
+          // Build experience object
+          const expData = {
+            title: title,
+            company: company,
+            date_range: workTimes,
+            from_date: fromDate,
+            to_date: toDate,
+            duration: duration,
+            location: location,
+            description: description,
+            company_url: companyUrl
+          };
+          
+          // Only add if we have meaningful data
+          if (expData.title || expData.company) {
+            experiences.push(expData);
+            console.log(`✅ Added experience: ${expData.title || 'Unknown Position'} at ${expData.company || 'Unknown Company'}`);
+            console.log(`📋 Full experience data:`, expData);
+          } else {
+            console.log(`⚠️ Skipping experience item - no valid title or company found`);
+            console.log(`📋 Debug info: title="${title}", company="${company}", workTimes="${workTimes}"`);
+          }
+        } catch (e) {
+          console.log(`⚠️ Failed to parse experience ${i + 1}:`, e.message);
         }
       }
 
-      console.log(`✅ Extracted ${experiences.length} basic experience entries`);
+      console.log(`✅ Extracted ${experiences.length} comprehensive experience entries`);
+      
+      // Navigate back to the main profile page
+      const mainProfileUrl = baseUrl;
+      console.log(`🔙 Navigating back to main profile: ${mainProfileUrl}`);
+      window.location.href = mainProfileUrl;
+      
+      // Wait for the page to load
+      await this.wait(2000);
 
     } catch (error) {
       console.error('❌ Failed to extract experience:', error);
