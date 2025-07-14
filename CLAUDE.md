@@ -30,6 +30,16 @@ This is a Chrome extension that automatically fills job application forms using 
 - Uses line-by-line analysis to find job title + company pairs
 - Includes duplicate removal and validation
 
+**Next Priority - Skills Extraction**:
+- **Challenge**: Skills are job-specific and hidden behind modals (similar to contact info)
+- **Structure**: Each job position has associated skills that require clicking to reveal
+- **Technical Approach**: 
+  - Find skill indicators on each job (e.g., "Team Leadership, Curriculum Development and +2 skills")
+  - Click to open skills modal for each position
+  - Extract skills from modal content (similar to contact info modal extraction)
+  - Associate skills with specific job positions
+- **Example**: "English Language Teacher" position shows 4 skills: Team Leadership, Curriculum Development, Marketing Strategy, Staff Training & Mentorship
+
 ### Backend Server
 ```bash
 # Start the enhanced backend server (includes PDF parsing and OCR)
