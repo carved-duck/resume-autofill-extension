@@ -834,11 +834,35 @@ export class LinkedInExtractor {
         lowerTitle.includes('contract') ||
         lowerTitle.includes('yrs') ||
         lowerTitle.includes('mos') ||
-        lowerTitle.includes('ago')) {
+        lowerTitle.includes('ago') ||
+        this.looksLikeMetadata(title)) {
       return false;
     }
 
-    return true;
+    // Job titles typically contain certain words or patterns
+    const jobTitleIndicators = [
+      'engineer', 'developer', 'manager', 'director', 'analyst', 'designer',
+      'consultant', 'specialist', 'coordinator', 'assistant', 'associate',
+      'lead', 'senior', 'junior', 'intern', 'teacher', 'instructor', 'professor',
+      'chef', 'cook', 'server', 'barista', 'receptionist', 'clerk', 'sales',
+      'marketing', 'hr', 'human resources', 'operations', 'finance', 'accounting'
+    ];
+    
+    // If it contains job-like words, it's likely a title
+    const hasJobWords = jobTitleIndicators.some(word => lowerTitle.includes(word));
+    
+    // If it doesn't have job words, it might still be valid if it's formatted like a title
+    // Titles often have title case or specific patterns
+    const looksLikeTitle = /^[A-Z]/.test(title) && // Starts with capital
+                          !lowerTitle.includes('inc') && // Not company suffixes
+                          !lowerTitle.includes('llc') &&
+                          !lowerTitle.includes('corp') &&
+                          !lowerTitle.includes('company') &&
+                          !lowerTitle.includes('ltd') &&
+                          !lowerTitle.includes('&') && // Company indicators
+                          !lowerTitle.includes('and');
+
+    return hasJobWords || looksLikeTitle;
   }
 
   isValidCompanyName(company) {
@@ -855,11 +879,65 @@ export class LinkedInExtractor {
         lowerCompany.includes('yrs') ||
         lowerCompany.includes('mos') ||
         lowerCompany.includes('ago') ||
-        lowerCompany.includes('·')) {
+        lowerCompany.includes('·') ||
+        this.looksLikeMetadata(company)) {
       return false;
     }
 
-    return true;
+    // Skip obvious job titles being mistaken for companies
+    const jobTitleWords = [
+      'engineer', 'developer', 'manager', 'director', 'analyst', 'designer',
+      'consultant', 'specialist', 'coordinator', 'assistant', 'associate',
+      'lead', 'senior', 'junior', 'intern', 'teacher', 'instructor', 'professor',
+      'chef', 'cook', 'server', 'barista', 'receptionist', 'clerk'
+    ];
+    
+    // If it's clearly a job title, it's not a company
+    const isJobTitle = jobTitleWords.some(word => lowerCompany.includes(word + ' ') || lowerCompany.endsWith(' ' + word) || lowerCompany === word);
+    if (isJobTitle) {
+      return false;
+    }
+
+    // Company indicators (positive signals)
+    const companyIndicators = [
+      'inc', 'llc', 'corp', 'corporation', 'company', 'ltd', 'limited',
+      'group', 'holdings', 'enterprises', 'solutions', 'services', 'systems',
+      'technologies', 'tech', 'consulting', 'partners', 'associates', 
+      'studios', 'studio', 'agency', 'firm', 'bank', 'hotel', 'restaurant',
+      'school', 'university', 'college', 'hospital', 'clinic', 'center'
+    ];
+    
+    const hasCompanyWords = companyIndicators.some(word => lowerCompany.includes(word));
+    
+    // If it has company indicators, it's likely a company
+    if (hasCompanyWords) {
+      return true;
+    }
+    
+    // If it's a proper noun (capitalized) and doesn't look like a job title, it might be a company
+    const looksLikeCompany = /^[A-Z]/.test(company) && // Starts with capital
+                            !this.isObviousJobTitle(company);
+    
+    return looksLikeCompany;
+  }
+
+  isObviousJobTitle(text) {
+    const lowerText = text.toLowerCase();
+    
+    // Common job title patterns
+    return lowerText.includes('teacher') ||
+           lowerText.includes('developer') ||
+           lowerText.includes('engineer') ||
+           lowerText.includes('manager') ||
+           lowerText.includes('analyst') ||
+           lowerText.includes('designer') ||
+           lowerText.includes('consultant') ||
+           lowerText.includes('specialist') ||
+           lowerText.includes('director') ||
+           lowerText.includes('coordinator') ||
+           lowerText.includes('assistant') ||
+           lowerText.includes('associate') ||
+           lowerText.match(/^(senior|junior|lead|principal|chief|head of)/);
   }
 
   looksLikeDateRange(text) {
@@ -875,6 +953,64 @@ export class LinkedInExtractor {
            lowerText.includes('yrs') ||
            lowerText.includes('mos') ||
            lowerText.includes(' - ');
+  }
+
+  looksLikeMetadata(text) {
+    if (!text || text.length < 2) return false;
+    
+    const lowerText = text.toLowerCase();
+    
+    // Check for common LinkedIn metadata patterns
+    return lowerText.includes('full-time') ||
+           lowerText.includes('part-time') ||
+           lowerText.includes('contract') ||
+           lowerText.includes('freelance') ||
+           lowerText.includes('remote') ||
+           lowerText.includes('on-site') ||
+           lowerText.includes('hybrid') ||
+           lowerText.includes('·') ||
+           lowerText.includes('show more') ||
+           lowerText.includes('see more') ||
+           lowerText.match(/^\d+\s+(yr|mo|year|month)/) || // "2 yrs", "6 months"
+           lowerText.includes('skills:') ||
+           lowerText.includes('endorsed');
+  }
+
+  tryAlternativeTextPatterns(lines, result) {
+    // Try to find patterns like "Title at Company" or "Title | Company"
+    for (const line of lines) {
+      if (line.includes(' at ')) {
+        const parts = line.split(' at ');
+        if (parts.length === 2) {
+          const potentialTitle = parts[0].trim();
+          const potentialCompany = parts[1].trim();
+          
+          if (this.isValidJobTitle(potentialTitle) && this.isValidCompanyName(potentialCompany)) {
+            result.title = potentialTitle;
+            result.company = potentialCompany;
+            console.log(`✅ Found "at" pattern: "${potentialTitle}" at "${potentialCompany}"`);
+            return result;
+          }
+        }
+      }
+      
+      if (line.includes(' | ')) {
+        const parts = line.split(' | ');
+        if (parts.length === 2) {
+          const potentialTitle = parts[0].trim();
+          const potentialCompany = parts[1].trim();
+          
+          if (this.isValidJobTitle(potentialTitle) && this.isValidCompanyName(potentialCompany)) {
+            result.title = potentialTitle;
+            result.company = potentialCompany;
+            console.log(`✅ Found "|" pattern: "${potentialTitle}" | "${potentialCompany}"`);
+            return result;
+          }
+        }
+      }
+    }
+    
+    return result;
   }
 
   async clickShowAllExperiences() {
@@ -993,22 +1129,47 @@ export class LinkedInExtractor {
       }
     }
 
-    // Strategy 2: If structured approach fails, try text-based extraction
+    // Strategy 2: If structured approach fails, try improved text-based extraction
     if (!title || !company) {
       console.log('⚠️ Structured extraction failed, trying text-based approach...');
       const elementText = element.textContent || '';
       const lines = elementText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
       
+      console.log(`🔍 Analyzing ${lines.length} text lines:`, lines.slice(0, 5));
+      
+      // Strategy 2A: Look for sequential title → company pattern
       for (let i = 0; i < lines.length - 1; i++) {
-        if (!title && this.isValidJobTitle(lines[i])) {
-          title = lines[i];
-          console.log(`✅ Found title from text: ${title}`);
+        const currentLine = lines[i];
+        const nextLine = lines[i + 1];
+        
+        // Check if current line could be title and next could be company
+        if (!title && this.isValidJobTitle(currentLine) && 
+            !this.looksLikeDateRange(currentLine) && !this.looksLikeMetadata(currentLine)) {
+          
+          // Look for company in subsequent lines
+          for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+            const potentialCompany = lines[j];
+            if (this.isValidCompanyName(potentialCompany) && 
+                potentialCompany !== currentLine &&
+                !this.looksLikeDateRange(potentialCompany) && 
+                !this.looksLikeMetadata(potentialCompany)) {
+              title = currentLine;
+              company = potentialCompany;
+              console.log(`✅ Found title-company pair: "${title}" → "${company}"`);
+              break;
+            }
+          }
+          
+          if (title && company) break;
         }
-        if (!company && this.isValidCompanyName(lines[i])) {
-          company = lines[i];
-          console.log(`✅ Found company from text: ${company}`);
-        }
-        if (title && company) break;
+      }
+      
+      // Strategy 2B: If still no match, try alternative patterns
+      if (!title || !company) {
+        console.log('⚠️ Sequential pattern failed, trying alternative patterns...');
+        const altResult = this.tryAlternativeTextPatterns(lines, { title, company });
+        title = altResult.title || title;
+        company = altResult.company || company;
       }
     }
 
