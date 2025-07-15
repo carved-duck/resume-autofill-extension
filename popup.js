@@ -60,6 +60,12 @@ class PopupController {
     if (linkedinBtn) {
       linkedinBtn.addEventListener('click', () => this.extractLinkedInData());
     }
+    
+    // LinkedIn debug button
+    const linkedinDebugBtn = document.getElementById('linkedinDebugBtn');
+    if (linkedinDebugBtn) {
+      linkedinDebugBtn.addEventListener('click', () => this.debugLinkedInPage());
+    }
 
     // File upload button - manual fallback
     const uploadBtn = document.getElementById('uploadBtn');
@@ -292,6 +298,34 @@ class PopupController {
     } catch (error) {
       console.error('❌ Error during LinkedIn extraction:', error);
       this.showLinkedInExtractionError(error.message);
+    }
+  }
+
+  async debugLinkedInPage() {
+    try {
+      this.showMessage('Running LinkedIn page debug...', 'info');
+      
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab.url.includes('linkedin.com')) {
+        this.showMessage('Please navigate to a LinkedIn profile page', 'error');
+        return;
+      }
+
+      // Send message to content script to run debug
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        action: 'debugLinkedIn'
+      });
+
+      if (response && response.success) {
+        this.showMessage('Debug completed! Check browser console for detailed results.', 'success');
+        console.log('🔍 LinkedIn Debug Results:', response.debugData);
+      } else {
+        this.showMessage(response?.error || 'Debug failed', 'error');
+      }
+    } catch (error) {
+      console.error('❌ LinkedIn debug error:', error);
+      this.showMessage('Error running debug: ' + error.message, 'error');
     }
   }
 

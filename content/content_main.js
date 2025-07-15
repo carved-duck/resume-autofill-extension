@@ -118,6 +118,10 @@ if (window.resumeAutoFillContentScriptLoaded) {
               this.handleLinkedInExtraction(sendResponse);
               break;
 
+            case 'debugLinkedIn':
+              this.handleLinkedInDebug(sendResponse);
+              break;
+
             case 'analyzePageStructure':
               this.handlePageAnalysis(sendResponse);
               break;
@@ -322,6 +326,35 @@ if (window.resumeAutoFillContentScriptLoaded) {
         sendResponse({ success: true, data: normalizedData });
       } catch (error) {
         console.error('❌ LinkedIn extraction failed:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+    }
+
+    async handleLinkedInDebug(sendResponse) {
+      try {
+        console.log('🔍 Starting LinkedIn page debug...');
+        
+        // Check if we're actually on LinkedIn
+        if (!window.location.hostname.includes('linkedin.com')) {
+          throw new Error('Not on LinkedIn page');
+        }
+
+        // Load LinkedIn extractor if not available
+        await this.loadLinkedInExtractor();
+
+        if (!window.LinkedInExtractor) {
+          throw new Error('LinkedIn extractor not available');
+        }
+
+        // Create extractor and run debug
+        const extractor = new window.LinkedInExtractor();
+        const debugData = extractor.debugPageStructure();
+        
+        console.log('✅ LinkedIn debug completed');
+        sendResponse({ success: true, debugData: debugData });
+        
+      } catch (error) {
+        console.error('❌ LinkedIn debug failed:', error);
         sendResponse({ success: false, error: error.message });
       }
     }
