@@ -111,7 +111,7 @@ export class LinkedInExtractor {
         const fullName = nameEl.textContent.trim();
         // Validate that this looks like a name (allow international characters)
         if (fullName.length > 2 && fullName.length < 100 && 
-            /^[\p{L}\p{M}\s\-\.\']+$/u.test(fullName) && // Unicode support for international names
+            /^[a-zA-ZÀ-ÿ\u0100-\u017F\u0180-\u024F\u1E00-\u1EFF\s\-.']+$/.test(fullName) && // Support international characters
             !fullName.toLowerCase().includes('linkedin') &&
             !fullName.toLowerCase().includes('profile')) {
           personalInfo.full_name = fullName;
@@ -1209,7 +1209,7 @@ export class LinkedInExtractor {
     // Log all path nodes (common for skills, experience, etc.)
     const allPathNodes = document.querySelectorAll('.pvs-entity__path-node');
     console.log(`📋 Found ${allPathNodes.length} total .pvs-entity__path-node elements`);
-    allPathNodes.slice(0, 5).forEach((node, i) => {
+    Array.from(allPathNodes).slice(0, 5).forEach((node, i) => {
       console.log(`   Path node ${i}: "${node.textContent?.trim()}"`);
     });
 

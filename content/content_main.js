@@ -490,6 +490,71 @@ if (window.resumeAutoFillContentScriptLoaded) {
           console.log('✅ Fallback LinkedIn profile data extracted');
           return profileData;
         }
+
+        debugPageStructure() {
+          console.log('🔍 DEBUG: Analyzing LinkedIn page structure (Fallback Extractor)...');
+          
+          const sections = {
+            about: document.querySelector('#about'),
+            experience: document.querySelector('#experience'),
+            education: document.querySelector('#education'),
+            skills: document.querySelector('#skills'),
+            name: document.querySelector('h1.text-heading-xlarge'),
+            headline: document.querySelector('.text-body-medium.break-words'),
+            location: document.querySelector('.text-body-small.inline.t-black--light.break-words')
+          };
+
+          console.log('📍 Section availability:', Object.entries(sections).map(([key, el]) => 
+            `${key}: ${el ? '✅' : '❌'}`
+          ).join(', '));
+
+          // Debug experience section in detail
+          if (sections.experience) {
+            console.log('💼 Experience section detailed analysis:');
+            
+            const expContainers = [
+              '#experience + div',
+              '#experience ~ div', 
+              '#experience + section',
+              '#experience ~ section'
+            ];
+            
+            for (const selector of expContainers) {
+              const container = document.querySelector(selector);
+              if (container) {
+                console.log(`📦 Found experience container with selector "${selector}"`);
+                console.log(`   - Text preview: "${container.textContent?.substring(0, 150)}..."`);
+                console.log(`   - Child elements: ${container.children.length}`);
+                console.log(`   - Has .pvs-list__item--line-separated: ${container.querySelectorAll('.pvs-list__item--line-separated').length}`);
+                console.log(`   - Has .pvs-entity__path-node: ${container.querySelectorAll('.pvs-entity__path-node').length}`);
+              }
+            }
+          }
+
+          // Debug skills section
+          if (sections.skills) {
+            console.log('🛠️ Skills section detailed analysis:');
+            const skillsContainer = document.querySelector('#skills + div, #skills ~ div');
+            if (skillsContainer) {
+              console.log(`   - Skills container found`);
+              console.log(`   - Text preview: "${skillsContainer.textContent?.substring(0, 150)}..."`);
+              console.log(`   - Has .pvs-entity__path-node: ${skillsContainer.querySelectorAll('.pvs-entity__path-node').length}`);
+            }
+          }
+
+          // Log all pvs-list items
+          const allPvsList = document.querySelectorAll('.pvs-list__item--line-separated');
+          console.log(`📋 Found ${allPvsList.length} total .pvs-list__item--line-separated elements`);
+          
+          // Log all path nodes
+          const allPathNodes = document.querySelectorAll('.pvs-entity__path-node');
+          console.log(`📋 Found ${allPathNodes.length} total .pvs-entity__path-node elements`);
+          Array.from(allPathNodes).slice(0, 5).forEach((node, i) => {
+            console.log(`   Path node ${i}: "${node.textContent?.trim()}"`);
+          });
+
+          return sections;
+        }
       }
 
       window.LinkedInExtractor = FallbackLinkedInExtractor;
