@@ -108,7 +108,7 @@ export class LinkedInExtractor {
       }
 
       if (nameEl && nameEl.textContent?.trim()) {
-        const fullName = nameEl.textContent.trim();
+        const fullName = this.deduplicateText(nameEl.textContent.trim());
         // Validate that this looks like a name (allow international characters)
         if (fullName.length > 2 && fullName.length < 100 && 
             /^[a-zA-ZÀ-ÿ\u0100-\u017F\u0180-\u024F\u1E00-\u1EFF\s\-.']+$/.test(fullName) && // Support international characters
@@ -155,7 +155,7 @@ export class LinkedInExtractor {
       }
 
       if (headlineEl && headlineEl.textContent?.trim()) {
-        const headline = headlineEl.textContent.trim();
+        const headline = this.deduplicateText(headlineEl.textContent.trim());
         // Skip if this looks like a name instead of headline or is too short/long
         if (headline.length > 5 && headline.length < 200 && 
             !headline.includes(personalInfo.full_name || '') &&
@@ -192,7 +192,7 @@ export class LinkedInExtractor {
       }
 
       if (locationEl && locationEl.textContent?.trim()) {
-        const location = locationEl.textContent.trim();
+        const location = this.deduplicateText(locationEl.textContent.trim());
         // Enhanced validation for location
         if (location.length > 2 && location.length < 100 && 
             !location.includes('@') && !location.includes('http') &&
@@ -695,7 +695,7 @@ export class LinkedInExtractor {
       // Split into meaningful lines with better filtering
       const lines = experienceText
         .split('\n')
-        .map(line => line.trim())
+        .map(line => this.deduplicateText(line.trim()))
         .filter(line => line.length > 2 && line.length < 150)
         .filter(line => {
           const lowerLine = line.toLowerCase();
@@ -712,36 +712,111 @@ export class LinkedInExtractor {
                  !line.match(/^\d+$/) && // Skip standalone numbers
                  !lowerLine.includes(' yrs') && // Skip "2 yrs" type text
                  !lowerLine.includes(' mos') && // Skip "6 mos" type text
-                 !lowerLine.includes('· ') && // Skip metadata with bullets
+                 // REMOVED: !lowerLine.includes('· ') && // We need metadata lines for company extraction!
                  !lowerLine.match(/^(full-time|part-time|contract|freelance)$/); // Skip employment types
         });
 
       console.log(`📍 Filtered lines: ${lines.slice(0, 10).join(' | ')}`);
 
-      // Improved parsing: Look for patterns that indicate job titles and companies
-      for (let i = 0; i < lines.length - 1; i++) {
-        const possibleTitle = lines[i];
-        const possibleCompany = lines[i + 1];
+      // Two-pass parsing approach: collect potential titles and companies, then match them
+      console.log('🔍 Starting two-pass parsing approach...');
+      
+      const potentialTitles = [];
+      const potentialCompanies = [];
+      const dateRanges = [];
+      
+      // Pass 1: Collect all potential titles, companies, and date ranges
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        console.log(`🔍 Processing line ${i}: "${line}"`);
         
-        // Enhanced validation for job title and company pair
-        if (this.isValidJobTitle(possibleTitle) && this.isValidCompanyName(possibleCompany)) {
-          // Look for duration in nearby lines
-          let dateRange = '';
-          for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 3); j++) {
-            if (this.looksLikeDateRange(lines[j])) {
-              dateRange = lines[j];
-              break;
+        if (this.looksLikeDateRange(line)) {
+          dateRanges.push({ text: line, index: i });
+          console.log(`📅 Found date range: "${line}"`);
+          continue;
+        }
+        
+        // Skip very short lines
+        if (line.length < 3) {
+          console.log(`⏭️ Skipping line ${i}: too short`);
+          continue;
+        }
+        
+        // Check if this line looks like metadata (contains bullet point)
+        if (this.looksLikeMetadata(line)) {
+          console.log(`🔍 Checking metadata line: "${line}"`);
+          const extractedCompany = this.extractCompanyFromMetadata(line);
+          if (extractedCompany) {
+            potentialCompanies.push({ text: extractedCompany, index: i, source: 'metadata' });
+            console.log(`🏢 Added company from metadata: "${extractedCompany}"`);
+          }
+          continue;
+        }
+        
+        // Check if it's a valid job title
+        if (this.isValidJobTitle(line)) {
+          potentialTitles.push({ text: line, index: i });
+          console.log(`💼 Added potential title: "${line}"`);
+        }
+        
+        // Check if it's a valid company name
+        if (this.isValidCompanyName(line)) {
+          potentialCompanies.push({ text: line, index: i, source: 'direct' });
+          console.log(`🏢 Added potential company: "${line}"`);
+        }
+      }
+      
+      console.log(`📊 Collection results: ${potentialTitles.length} titles, ${potentialCompanies.length} companies, ${dateRanges.length} dates`);
+      
+      // Pass 2: Match titles with companies based on proximity
+      for (const title of potentialTitles) {
+        console.log(`🔗 Looking for company match for title: "${title.text}"`);
+        
+        // Find the closest company to this title
+        let closestCompany = null;
+        let smallestDistance = Infinity;
+        
+        for (const company of potentialCompanies) {
+          const distance = Math.abs(company.index - title.index);
+          console.log(`   - Company "${company.text}" at distance ${distance} (source: ${company.source})`);
+          
+          if (distance < smallestDistance && distance <= 5) { // Only consider companies within 5 lines
+            smallestDistance = distance;
+            closestCompany = company;
+          }
+        }
+        
+        if (closestCompany) {
+          // Find the closest date range
+          let closestDate = '';
+          let smallestDateDistance = Infinity;
+          
+          for (const dateRange of dateRanges) {
+            const distance = Math.abs(dateRange.index - title.index);
+            if (distance < smallestDateDistance && distance <= 3) {
+              smallestDateDistance = distance;
+              closestDate = dateRange.text;
             }
           }
-
-          experiences.push({
-            title: possibleTitle,
-            company: possibleCompany,
-            date_range: dateRange,
+          
+          const experience = {
+            title: title.text,
+            company: closestCompany.text,
+            date_range: closestDate,
             location: '',
-            description: `${possibleTitle} at ${possibleCompany}`
-          });
-          console.log(`✅ Found potential experience: "${possibleTitle}" at "${possibleCompany}" (${dateRange})`);
+            description: `${title.text} at ${closestCompany.text}`
+          };
+          
+          experiences.push(experience);
+          console.log(`✅ Matched experience: "${title.text}" at "${closestCompany.text}" (${closestDate}) [${closestCompany.source}]`);
+          
+          // Remove used company to avoid duplicates
+          const companyIndex = potentialCompanies.indexOf(closestCompany);
+          if (companyIndex > -1) {
+            potentialCompanies.splice(companyIndex, 1);
+          }
+        } else {
+          console.log(`❌ No company found for title: "${title.text}"`);
         }
       }
       
@@ -832,11 +907,25 @@ export class LinkedInExtractor {
         lowerTitle.includes('full-time') ||
         lowerTitle.includes('part-time') ||
         lowerTitle.includes('contract') ||
+        lowerTitle.includes('permanent') ||
         lowerTitle.includes('yrs') ||
         lowerTitle.includes('mos') ||
         lowerTitle.includes('ago') ||
         this.looksLikeMetadata(title)) {
       return false;
+    }
+
+    // Explicitly exclude known company patterns that shouldn't be job titles
+    const companyPatterns = [
+      'inc', 'llc', 'corp', 'corporation', 'company', 'ltd', 'limited',
+      'suites', 'hotel', 'resort', 'casino', 'spa', 'inn', 'lodge', 'plaza',
+      'bank', 'group', 'holdings', 'enterprises', 'solutions', 'services',
+      'technologies', 'consulting', 'agency', 'firm', 'studio', 'studios'
+    ];
+    
+    const hasCompanyPattern = companyPatterns.some(pattern => lowerTitle.includes(pattern));
+    if (hasCompanyPattern) {
+      return false; // This looks like a company name, not a job title
     }
 
     // Job titles typically contain certain words or patterns
@@ -845,24 +934,41 @@ export class LinkedInExtractor {
       'consultant', 'specialist', 'coordinator', 'assistant', 'associate',
       'lead', 'senior', 'junior', 'intern', 'teacher', 'instructor', 'professor',
       'chef', 'cook', 'server', 'barista', 'receptionist', 'clerk', 'sales',
-      'marketing', 'hr', 'human resources', 'operations', 'finance', 'accounting'
+      'marketing', 'hr', 'human resources', 'operations', 'finance', 'accounting',
+      'agent', 'representative', 'supervisor', 'administrator', 'technician',
+      'operator', 'executive', 'officer', 'head', 'vice', 'president'
     ];
     
     // If it contains job-like words, it's likely a title
-    const hasJobWords = jobTitleIndicators.some(word => lowerTitle.includes(word));
+    const hasJobWords = jobTitleIndicators.some(word => 
+      lowerTitle.includes(word + ' ') || 
+      lowerTitle.includes(' ' + word) || 
+      lowerTitle.endsWith(' ' + word) || 
+      lowerTitle.startsWith(word + ' ') ||
+      lowerTitle === word
+    );
     
-    // If it doesn't have job words, it might still be valid if it's formatted like a title
-    // Titles often have title case or specific patterns
-    const looksLikeTitle = /^[A-Z]/.test(title) && // Starts with capital
-                          !lowerTitle.includes('inc') && // Not company suffixes
-                          !lowerTitle.includes('llc') &&
-                          !lowerTitle.includes('corp') &&
-                          !lowerTitle.includes('company') &&
-                          !lowerTitle.includes('ltd') &&
-                          !lowerTitle.includes('&') && // Company indicators
-                          !lowerTitle.includes('and');
-
-    return hasJobWords || looksLikeTitle;
+    // Check for common job title patterns
+    const hasJobTitlePattern = 
+      lowerTitle.includes('coordinator') ||
+      lowerTitle.includes('specialist') ||
+      lowerTitle.includes('manager') ||
+      lowerTitle.includes('director') ||
+      lowerTitle.includes('analyst') ||
+      lowerTitle.includes('consultant') ||
+      lowerTitle.includes('engineer') ||
+      lowerTitle.includes('developer') ||
+      lowerTitle.includes('teacher') ||
+      lowerTitle.includes('instructor') ||
+      lowerTitle.includes('professor') ||
+      lowerTitle.includes('agent') ||
+      lowerTitle.includes('representative') ||
+      lowerTitle.includes('assistant') ||
+      lowerTitle.includes('associate') ||
+      lowerTitle.includes('clerk') ||
+      lowerTitle.includes('supervisor');
+    
+    return hasJobWords || hasJobTitlePattern;
   }
 
   isValidCompanyName(company) {
@@ -876,6 +982,7 @@ export class LinkedInExtractor {
         lowerCompany.includes('full-time') ||
         lowerCompany.includes('part-time') ||
         lowerCompany.includes('contract') ||
+        lowerCompany.includes('permanent') || // Add this common LinkedIn job type
         lowerCompany.includes('yrs') ||
         lowerCompany.includes('mos') ||
         lowerCompany.includes('ago') ||
@@ -889,22 +996,31 @@ export class LinkedInExtractor {
       'engineer', 'developer', 'manager', 'director', 'analyst', 'designer',
       'consultant', 'specialist', 'coordinator', 'assistant', 'associate',
       'lead', 'senior', 'junior', 'intern', 'teacher', 'instructor', 'professor',
-      'chef', 'cook', 'server', 'barista', 'receptionist', 'clerk'
+      'chef', 'cook', 'server', 'barista', 'receptionist', 'clerk', 'agent',
+      'representative', 'supervisor', 'administrator', 'technician', 'operator'
     ];
     
     // If it's clearly a job title, it's not a company
-    const isJobTitle = jobTitleWords.some(word => lowerCompany.includes(word + ' ') || lowerCompany.endsWith(' ' + word) || lowerCompany === word);
+    const isJobTitle = jobTitleWords.some(word => 
+      lowerCompany.includes(word + ' ') || 
+      lowerCompany.includes(' ' + word) || 
+      lowerCompany.endsWith(' ' + word) || 
+      lowerCompany.startsWith(word + ' ') ||
+      lowerCompany === word
+    );
     if (isJobTitle) {
       return false;
     }
 
-    // Company indicators (positive signals)
+    // Company indicators (positive signals) - expanded list
     const companyIndicators = [
       'inc', 'llc', 'corp', 'corporation', 'company', 'ltd', 'limited',
       'group', 'holdings', 'enterprises', 'solutions', 'services', 'systems',
       'technologies', 'tech', 'consulting', 'partners', 'associates', 
       'studios', 'studio', 'agency', 'firm', 'bank', 'hotel', 'restaurant',
-      'school', 'university', 'college', 'hospital', 'clinic', 'center'
+      'school', 'university', 'college', 'hospital', 'clinic', 'center',
+      'suites', 'resort', 'casino', 'spa', 'inn', 'lodge', 'plaza',
+      'international', 'global', 'worldwide', 'industries', 'manufacturing'
     ];
     
     const hasCompanyWords = companyIndicators.some(word => lowerCompany.includes(word));
@@ -914,8 +1030,13 @@ export class LinkedInExtractor {
       return true;
     }
     
+    // Check if it's a known company name pattern (2+ words, proper case)
+    const words = company.trim().split(/\s+/);
+    const hasProperCapitalization = words.every(word => /^[A-Z]/.test(word));
+    
     // If it's a proper noun (capitalized) and doesn't look like a job title, it might be a company
-    const looksLikeCompany = /^[A-Z]/.test(company) && // Starts with capital
+    const looksLikeCompany = hasProperCapitalization && 
+                            words.length >= 1 && // Allow single word companies
                             !this.isObviousJobTitle(company);
     
     return looksLikeCompany;
@@ -979,11 +1100,13 @@ export class LinkedInExtractor {
   tryAlternativeTextPatterns(lines, result) {
     // Try to find patterns like "Title at Company" or "Title | Company"
     for (const line of lines) {
-      if (line.includes(' at ')) {
-        const parts = line.split(' at ');
+      const dedupLine = this.deduplicateText(line);
+      
+      if (dedupLine.includes(' at ')) {
+        const parts = dedupLine.split(' at ');
         if (parts.length === 2) {
-          const potentialTitle = parts[0].trim();
-          const potentialCompany = parts[1].trim();
+          const potentialTitle = this.deduplicateText(parts[0].trim());
+          const potentialCompany = this.deduplicateText(parts[1].trim());
           
           if (this.isValidJobTitle(potentialTitle) && this.isValidCompanyName(potentialCompany)) {
             result.title = potentialTitle;
@@ -994,11 +1117,11 @@ export class LinkedInExtractor {
         }
       }
       
-      if (line.includes(' | ')) {
-        const parts = line.split(' | ');
+      if (dedupLine.includes(' | ')) {
+        const parts = dedupLine.split(' | ');
         if (parts.length === 2) {
-          const potentialTitle = parts[0].trim();
-          const potentialCompany = parts[1].trim();
+          const potentialTitle = this.deduplicateText(parts[0].trim());
+          const potentialCompany = this.deduplicateText(parts[1].trim());
           
           if (this.isValidJobTitle(potentialTitle) && this.isValidCompanyName(potentialCompany)) {
             result.title = potentialTitle;
@@ -1073,7 +1196,7 @@ export class LinkedInExtractor {
     for (const sel of titleSelectors) {
       const titleEl = element.querySelector(sel);
       if (titleEl && titleEl.textContent?.trim()) {
-        const titleText = titleEl.textContent.trim();
+        const titleText = this.deduplicateText(titleEl.textContent.trim());
         if (this.isValidJobTitle(titleText)) {
           title = titleText;
           console.log(`✅ Found title with selector "${sel}": ${title}`);
@@ -1099,7 +1222,7 @@ export class LinkedInExtractor {
     for (const sel of companySelectors) {
       const companyEl = element.querySelector(sel);
       if (companyEl && companyEl.textContent?.trim()) {
-        const companyText = companyEl.textContent.trim();
+        const companyText = this.deduplicateText(companyEl.textContent.trim());
         if (this.isValidCompanyName(companyText)) {
           company = companyText;
           console.log(`✅ Found company with selector "${sel}": ${company}`);
@@ -1136,31 +1259,74 @@ export class LinkedInExtractor {
       const lines = elementText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
       
       console.log(`🔍 Analyzing ${lines.length} text lines:`, lines.slice(0, 5));
+      console.log(`🔍 All text lines being processed:`, lines);
       
-      // Strategy 2A: Look for sequential title → company pattern
-      for (let i = 0; i < lines.length - 1; i++) {
-        const currentLine = lines[i];
-        const nextLine = lines[i + 1];
+      // Strategy 2A: Look for title AND company patterns with flexible ordering
+      let potentialTitles = [];
+      let potentialCompanies = [];
+      
+      // First pass: collect potential titles and companies
+      for (let i = 0; i < lines.length; i++) {
+        const line = this.deduplicateText(lines[i]);
         
-        // Check if current line could be title and next could be company
-        if (!title && this.isValidJobTitle(currentLine) && 
-            !this.looksLikeDateRange(currentLine) && !this.looksLikeMetadata(currentLine)) {
-          
-          // Look for company in subsequent lines
-          for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
-            const potentialCompany = lines[j];
-            if (this.isValidCompanyName(potentialCompany) && 
-                potentialCompany !== currentLine &&
-                !this.looksLikeDateRange(potentialCompany) && 
-                !this.looksLikeMetadata(potentialCompany)) {
-              title = currentLine;
-              company = potentialCompany;
-              console.log(`✅ Found title-company pair: "${title}" → "${company}"`);
+        console.log(`🔍 Processing line ${i}: "${line}"`);
+        
+        if (line.length < 3 || this.looksLikeDateRange(line) || this.looksLikeMetadata(line)) {
+          console.log(`⏭️ Skipping line ${i}: too short or is date/metadata`);
+          continue;
+        }
+        
+        if (this.isValidJobTitle(line)) {
+          potentialTitles.push({ text: line, index: i });
+          console.log(`🎯 Found potential job title: "${line}"`);
+        }
+        
+        if (this.isValidCompanyName(line)) {
+          potentialCompanies.push({ text: line, index: i });
+          console.log(`🏢 Found potential company: "${line}"`);
+        } else {
+          // Try to extract company from metadata patterns
+          console.log(`🔍 Attempting metadata extraction for line: "${line}"`);
+          const extractedCompany = this.extractCompanyFromMetadata(line);
+          if (extractedCompany) {
+            potentialCompanies.push({ text: extractedCompany, index: i });
+            console.log(`🏢 Found potential company from metadata: "${extractedCompany}"`);
+          } else {
+            console.log(`❌ No company extracted from metadata for: "${line}"`);
+          }
+        }
+      }
+      
+      // Second pass: try to match titles with companies
+      if (potentialTitles.length > 0 && potentialCompanies.length > 0) {
+        // Prefer the first valid title and first valid company
+        title = potentialTitles[0].text;
+        company = potentialCompanies[0].text;
+        console.log(`✅ Matched title-company pair: "${title}" → "${company}"`);
+      } else if (potentialTitles.length > 0) {
+        // If we have a title but no clear company, look for any remaining text
+        title = potentialTitles[0].text;
+        
+        // Look for a potential company that might not have passed strict validation
+        for (let i = 0; i < lines.length; i++) {
+          const line = this.deduplicateText(lines[i]);
+          if (line !== title && line.length > 2 && 
+              !this.looksLikeDateRange(line) && !this.looksLikeMetadata(line) &&
+              !line.toLowerCase().includes('skills:') &&
+              !this.isValidJobTitle(line)) {
+            
+            // Try to extract company name from metadata-rich strings like "AEON Corporation · Permanent"
+            const cleanedCompany = this.extractCompanyFromMetadata(line);
+            if (cleanedCompany && cleanedCompany.length > 2) {
+              company = cleanedCompany;
+              console.log(`✅ Found backup company for title "${title}": "${company}"`);
+              break;
+            } else if (line.length < 200) { // Avoid using long descriptions as company names
+              company = line;
+              console.log(`✅ Found backup company for title "${title}": "${company}"`);
               break;
             }
           }
-          
-          if (title && company) break;
         }
       }
       
@@ -1301,6 +1467,77 @@ export class LinkedInExtractor {
     // Input validation
     const waitTime = Math.max(0, Math.min(ms || 0, 10000)); // Cap at 10 seconds
     return new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
+  // Helper method to extract company name from metadata-rich strings
+  extractCompanyFromMetadata(text) {
+    if (!text || typeof text !== 'string') return null;
+    
+    // Handle patterns like "AEON Corporation · Permanent", "Gaba Corporation · Part-time", etc.
+    const metadataPatterns = [
+      /^([^·]+)\s*·\s*(permanent|part-time|full-time|contract)/i,
+      /^([^·]+)\s*·\s*\w+$/i, // Generic "Company · Something" pattern
+      /^(.+?)\s+·\s+.+$/i     // Even more generic fallback
+    ];
+    
+    for (const pattern of metadataPatterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        const companyName = match[1].trim();
+        console.log(`🔍 Testing metadata pattern: "${text}" → potential company: "${companyName}"`);
+        if (this.isValidCompanyName(companyName)) {
+          console.log(`🏢 Extracted company from metadata: "${text}" → "${companyName}"`);
+          return companyName;
+        } else {
+          console.log(`❌ "${companyName}" failed company validation`);
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  // Helper method to fix text deduplication issues
+  deduplicateText(text) {
+    if (!text || typeof text !== 'string') return text;
+    
+    // LinkedIn sometimes duplicates text content
+    // Example: "Embassy SuitesEmbassy Suites" -> "Embassy Suites"
+    
+    const trimmed = text.trim();
+    const length = trimmed.length;
+    
+    // If text length is even, check if it's a perfect duplication
+    if (length > 6 && length % 2 === 0) {
+      const halfLength = length / 2;
+      const firstHalf = trimmed.substring(0, halfLength);
+      const secondHalf = trimmed.substring(halfLength);
+      
+      if (firstHalf === secondHalf) {
+        console.log(`🔧 Fixed duplicated text: "${trimmed}" -> "${firstHalf}"`);
+        return firstHalf;
+      }
+    }
+    
+    // Also check for common duplication patterns with slight variations
+    // Look for patterns like "TextText" where Text appears twice consecutively
+    const words = trimmed.split(/\s+/);
+    if (words.length >= 2) {
+      // Find the longest repeating substring at the beginning
+      for (let i = 1; i <= Math.floor(words.length / 2); i++) {
+        const firstPart = words.slice(0, i).join(' ');
+        const secondPart = words.slice(i, i * 2).join(' ');
+        
+        if (firstPart === secondPart && firstPart.length > 3) {
+          const remainder = words.slice(i * 2).join(' ');
+          const result = remainder ? `${firstPart} ${remainder}` : firstPart;
+          console.log(`🔧 Fixed word-level duplication: "${trimmed}" -> "${result}"`);
+          return result;
+        }
+      }
+    }
+    
+    return trimmed;
   }
 
   // Debug method to help diagnose extraction issues

@@ -32,10 +32,14 @@ This is a Chrome extension that automatically fills job application forms using 
 - **Debug Shows**: 5 `.pvs-list__item--line-separated` elements found after clicking "Show all experiences"
 
 **Next Steps for Part 2 Completion**:
-1. **Fix Experience Text Parsing**: Improve job title vs company name separation logic
-2. **Better DOM Structure Analysis**: Use debug output to understand actual LinkedIn structure
-3. **Enhanced Validation**: Fix `isValidJobTitle()` and `isValidCompanyName()` methods
-4. **Test Edge Cases**: Handle different experience layouts (multiple roles at same company, etc.)
+1. ✅ **Fixed Text Deduplication**: Added `deduplicateText()` method to handle LinkedIn's duplicate content issues (e.g., "Embassy SuitesEmbassy Suites" → "Embassy Suites")
+2. ✅ **Improved Parsing Logic**: Enhanced job title vs company validation with smarter pattern recognition:
+   - Added "suites", "hotel", etc. to company indicators (fixes "Embassy Suites" recognition)
+   - Prevented "Permanent" from being recognized as a company name
+   - Improved text extraction with two-pass algorithm (collect potential titles/companies, then match)
+   - Enhanced job title pattern matching with more comprehensive keyword lists
+3. **TODO: Handle redirects to experiences page for additional data scraping** - Implement navigation to detailed experience pages
+4. **TODO: Investigate education section extraction** - Debug why education section is not being found and extracted
 
 **Current Extraction Results**:
 - ✅ Personal info: 9 fields extracted
