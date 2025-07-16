@@ -53,20 +53,23 @@ export class LinkedInExtractor {
         certifications: Array.isArray(certifications) ? certifications : []
       };
 
+      // Validate and ensure data quality
+      const validatedProfileData = this.validateAndCleanProfileData(profileData);
+
       // Log the final profile data for debugging
-      console.log('FINAL PROFILE DATA:', JSON.stringify(profileData, null, 2));
+      console.log('FINAL PROFILE DATA:', JSON.stringify(validatedProfileData, null, 2));
 
       console.log('✅ LinkedIn profile data extracted successfully');
       console.log('📊 Extraction Summary:', {
-        personal_info: Object.keys(profileData.personal_info || {}).length,
-        summary: profileData.summary?.length || 0,
-        work_experience: profileData.work_experience?.length || 0,
-        education: profileData.education?.length || 0,
-        skills: profileData.skills?.length || 0,
-        certifications: profileData.certifications?.length || 0
+        personal_info: Object.keys(validatedProfileData.personal_info || {}).length,
+        summary: validatedProfileData.summary?.length || 0,
+        work_experience: validatedProfileData.work_experience?.length || 0,
+        education: validatedProfileData.education?.length || 0,
+        skills: validatedProfileData.skills?.length || 0,
+        certifications: validatedProfileData.certifications?.length || 0
       });
 
-      return profileData;
+      return validatedProfileData;
 
     } catch (error) {
       console.error('❌ Failed to extract LinkedIn data:', error);
@@ -108,7 +111,7 @@ export class LinkedInExtractor {
       }
 
       if (nameEl && nameEl.textContent?.trim()) {
-        const fullName = this.deduplicateText(nameEl.textContent.trim());
+        const fullName = this.deduplicateText(nameEl.textContent?.trim() || '');
         // Validate that this looks like a name (allow international characters)
         if (fullName.length > 2 && fullName.length < 100 && 
             /^[a-zA-ZÀ-ÿ\u0100-\u017F\u0180-\u024F\u1E00-\u1EFF\s\-.']+$/.test(fullName) && // Support international characters
@@ -155,7 +158,7 @@ export class LinkedInExtractor {
       }
 
       if (headlineEl && headlineEl.textContent?.trim()) {
-        const headline = this.deduplicateText(headlineEl.textContent.trim());
+        const headline = this.deduplicateText(headlineEl.textContent?.trim() || '');
         // Skip if this looks like a name instead of headline or is too short/long
         if (headline.length > 5 && headline.length < 200 && 
             !headline.includes(personalInfo.full_name || '') &&
@@ -192,7 +195,7 @@ export class LinkedInExtractor {
       }
 
       if (locationEl && locationEl.textContent?.trim()) {
-        const location = this.deduplicateText(locationEl.textContent.trim());
+        const location = this.deduplicateText(locationEl.textContent?.trim() || '');
         // Enhanced validation for location
         if (location.length > 2 && location.length < 100 && 
             !location.includes('@') && !location.includes('http') &&
@@ -243,8 +246,13 @@ export class LinkedInExtractor {
 
       if (contactLink) {
         // Click the contact info link
-        contactLink.click();
-        await this.wait(500);
+        try {
+          contactLink.click();
+          await this.wait(500);
+        } catch (error) {
+          console.warn('⚠️ Failed to click contact link:', error);
+          return;
+        }
 
         // Wait for the modal to appear and be visible
         let modal = null;
@@ -301,7 +309,7 @@ export class LinkedInExtractor {
         let foundPhone = false;
         const phoneElement = modalContent.querySelector('span[aria-label*="phone"], .ci-phone, .contact-info .ci-phone, .pv-contact-info__contact-type.ci-phone span.t-14');
         if (phoneElement && phoneElement.textContent?.trim()) {
-          const phone = phoneElement.textContent.trim();
+          const phone = phoneElement.textContent?.trim() || '';
           personalInfo.phone = phone;
           foundPhone = true;
           console.log(`✅ Found phone: ${phone}`);
@@ -313,8 +321,12 @@ export class LinkedInExtractor {
         // Close contact info modal if open
         const closeButton = modal.querySelector('button[aria-label*="Dismiss"], .artdeco-modal__dismiss');
         if (closeButton) {
-          closeButton.click();
-          await this.wait(500);
+          try {
+            closeButton.click();
+            await this.wait(500);
+          } catch (error) {
+            console.warn('⚠️ Failed to close contact modal:', error);
+          }
         }
       } else {
         console.log('⚠️ Contact info link not found');
@@ -374,7 +386,7 @@ export class LinkedInExtractor {
           
           // Skip if this looks like a header container (has h2 but minimal text)
           const hasHeader = aboutContent.querySelector('h2, h3, h4');
-          const textContent = aboutContent.textContent.trim();
+          const textContent = aboutContent.textContent?.trim() || '';
           if (hasHeader && textContent.length < 100) {
             console.log('⚠️ Skipping header container, looking for actual content...');
             continue;
@@ -407,7 +419,7 @@ export class LinkedInExtractor {
           for (const textSelector of textSelectors) {
             const textElement = aboutContent.querySelector(textSelector);
             if (textElement) {
-              const summaryText = textElement.textContent.trim();
+              const summaryText = textElement.textContent?.trim() || '';
               if (summaryText && summaryText.length > 50) { // Reduced length requirement
                 console.log(`✅ Found summary with ${textSelector}: ${summaryText.substring(0, 100)}...`);
                 return summaryText;
@@ -416,7 +428,7 @@ export class LinkedInExtractor {
           }
 
           // If no text found in nested elements, try the content directly
-          const directText = aboutContent.textContent.trim();
+          const directText = aboutContent.textContent?.trim() || '';
           if (directText && directText.length > 50) { // Reduced length requirement
             console.log(`✅ Found summary (direct): ${directText.substring(0, 100)}...`);
             return directText;
@@ -432,7 +444,7 @@ export class LinkedInExtractor {
         let attempts = 0;
         
         while (currentElement && attempts < 10) {
-          const textContent = currentElement.textContent.trim();
+          const textContent = currentElement.textContent?.trim() || '';
           if (textContent.length > 50) {
             // Clean up the text by removing "see more" and extra whitespace
             const cleanedText = textContent
@@ -495,12 +507,16 @@ export class LinkedInExtractor {
 
           if (expandButton && expandButton.offsetParent !== null) {
             console.log(`🎯 Found skills expand button: ${selector}`);
-            expandButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            await this.wait(500);
-            expandButton.click();
-            await this.wait(3000); // Longer wait for skills to load
-            foundExpandButton = true;
-            break;
+            try {
+              expandButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              await this.wait(500);
+              expandButton.click();
+              await this.wait(3000); // Longer wait for skills to load
+              foundExpandButton = true;
+              break;
+            } catch (clickError) {
+              console.warn(`⚠️ Failed to click skills expand button: ${clickError.message}`);
+            }
           }
         } catch (e) {
           console.log(`⚠️ Failed to expand skills with selector ${selector}:`, e.message);
@@ -540,7 +556,7 @@ export class LinkedInExtractor {
           for (let i = 0; i < elementsToProcess; i++) {
             const skillEl = skillElements[i];
             if (skillEl && skillEl.textContent?.trim()) {
-              const skillText = skillEl.textContent.trim();
+              const skillText = skillEl.textContent?.trim() || '';
               
               // Validate skill text
               if (this.isValidSkill(skillText)) {
@@ -620,9 +636,13 @@ export class LinkedInExtractor {
           const expandButton = certSection.querySelector(selector);
           if (expandButton && expandButton.offsetParent !== null) {
             console.log(`🎯 Found certifications expand button: ${selector}`);
-            expandButton.click();
-            await this.wait(2000);
-            break;
+            try {
+              expandButton.click();
+              await this.wait(2000);
+              break;
+            } catch (clickError) {
+              console.warn(`⚠️ Failed to click certifications expand button: ${clickError.message}`);
+            }
           }
         } catch (e) {
           console.log(`⚠️ Failed to expand certifications with selector ${selector}:`, e.message);
@@ -639,8 +659,8 @@ export class LinkedInExtractor {
 
           if (nameElement) {
             const certData = {
-              name: nameElement.textContent.trim(),
-              issuer: issuerElement ? issuerElement.textContent.trim() : null
+              name: nameElement.textContent?.trim() || '',
+              issuer: issuerElement ? (issuerElement.textContent?.trim() || '') : null
             };
 
             if (certData.name && certData.name.length > 2) {
@@ -1157,10 +1177,37 @@ export class LinkedInExtractor {
           try {
             button.scrollIntoView({ behavior: 'smooth', block: 'center' });
             await this.wait(500);
-            button.click();
-            await this.wait(2000); // Wait for content to load
-            console.log('✅ Clicked show all experiences button');
-            return true;
+            
+            // Check if this is a link that will navigate to a new page
+            const isLink = button.tagName === 'A' && button.href;
+            const willNavigate = isLink && button.href.includes('/detail/');
+            
+            if (willNavigate) {
+              console.log('🔄 Experience button will navigate to detailed page');
+              // Store current page info before navigation
+              const currentUrl = window.location.href;
+              const currentPageData = this.getBasicExperienceData();
+              
+              // Navigate to detailed experience page
+              button.click();
+              await this.wait(3000); // Wait for page navigation
+              
+              // Check if we're on the detailed experience page
+              if (window.location.href !== currentUrl && 
+                  window.location.href.includes('/detail/experience')) {
+                console.log('✅ Successfully navigated to detailed experience page');
+                return await this.handleExperienceDetailPage(currentPageData);
+              } else {
+                console.log('⚠️ Navigation failed, staying on current page');
+                return true;
+              }
+            } else {
+              // Standard button click (expands content on same page)
+              button.click();
+              await this.wait(2000); // Wait for content to load
+              console.log('✅ Clicked show all experiences button (expanded content)');
+              return true;
+            }
           } catch (clickError) {
             console.log(`⚠️ Failed to click button with selector ${selector}:`, clickError.message);
             // Continue to next selector
@@ -1172,6 +1219,114 @@ export class LinkedInExtractor {
       return false;
     } catch (error) {
       console.error('❌ Failed to click show all experiences:', error);
+      return false;
+    }
+  }
+
+  // Helper method to get basic experience data before navigation
+  getBasicExperienceData() {
+    console.log('📊 Collecting basic experience data before navigation...');
+    
+    const basicData = {
+      profileUrl: window.location.href,
+      experiences: []
+    };
+    
+    try {
+      // Get any visible experience data from the main profile page
+      const expSection = document.querySelector('#experience');
+      if (expSection) {
+        const visibleExperiences = expSection.querySelectorAll('.pvs-list__item--line-separated');
+        
+        for (const exp of visibleExperiences) {
+          const titleEl = exp.querySelector('.pvs-entity__path-node');
+          const title = titleEl ? titleEl.textContent?.trim() : '';
+          
+          if (title && title.length > 2) {
+            basicData.experiences.push({
+              title: title,
+              source: 'main_profile'
+            });
+          }
+        }
+      }
+      
+      console.log(`📊 Collected ${basicData.experiences.length} basic experience entries`);
+    } catch (error) {
+      console.error('❌ Failed to collect basic experience data:', error);
+    }
+    
+    return basicData;
+  }
+
+  // Handle extraction from detailed experience page
+  async handleExperienceDetailPage(basicData) {
+    console.log('📄 Extracting detailed experience data from dedicated page...');
+    
+    try {
+      // Wait for the detailed page to fully load
+      await this.wait(3000);
+      
+      // Look for detailed experience entries on the dedicated page
+      const detailSelectors = [
+        '.pvs-list__item--with-top-padding',
+        '.pvs-list__item--line-separated',
+        '.experience-item',
+        '.pvs-entity'
+      ];
+      
+      const detailedExperiences = [];
+      
+      for (const selector of detailSelectors) {
+        const expElements = document.querySelectorAll(selector);
+        
+        if (expElements.length > 0) {
+          console.log(`✅ Found ${expElements.length} detailed experience elements with selector: ${selector}`);
+          
+          for (const expEl of expElements) {
+            try {
+              const extractedExp = this.extractExperienceFromElement(expEl);
+              if (extractedExp) {
+                extractedExp.source = 'detail_page';
+                detailedExperiences.push(extractedExp);
+                console.log(`✅ Detailed extraction: "${extractedExp.title}" at "${extractedExp.company}"`);
+              }
+            } catch (e) {
+              console.log('⚠️ Failed to parse detailed experience element:', e.message);
+            }
+          }
+          
+          if (detailedExperiences.length > 0) {
+            console.log(`✅ Successfully extracted ${detailedExperiences.length} detailed experiences`);
+            break; // Use the first successful selector
+          }
+        }
+      }
+      
+      // Try to navigate back to main profile (optional)
+      if (basicData.profileUrl && window.location.href !== basicData.profileUrl) {
+        console.log('🔄 Attempting to navigate back to main profile...');
+        try {
+          // Look for back button or navigate directly
+          const backButton = document.querySelector('button[aria-label*="Back"], a[href*="/in/"]');
+          if (backButton) {
+            backButton.click();
+            await this.wait(2000);
+          } else {
+            // Navigate back to main profile directly
+            window.location.href = basicData.profileUrl;
+            await this.wait(3000);
+          }
+          console.log('✅ Navigated back to main profile');
+        } catch (navError) {
+          console.log('⚠️ Failed to navigate back to main profile:', navError.message);
+        }
+      }
+      
+      return detailedExperiences.length > 0;
+      
+    } catch (error) {
+      console.error('❌ Failed to extract detailed experience data:', error);
       return false;
     }
   }
@@ -1196,7 +1351,7 @@ export class LinkedInExtractor {
     for (const sel of titleSelectors) {
       const titleEl = element.querySelector(sel);
       if (titleEl && titleEl.textContent?.trim()) {
-        const titleText = this.deduplicateText(titleEl.textContent.trim());
+        const titleText = this.deduplicateText(titleEl.textContent?.trim() || '');
         if (this.isValidJobTitle(titleText)) {
           title = titleText;
           console.log(`✅ Found title with selector "${sel}": ${title}`);
@@ -1222,7 +1377,7 @@ export class LinkedInExtractor {
     for (const sel of companySelectors) {
       const companyEl = element.querySelector(sel);
       if (companyEl && companyEl.textContent?.trim()) {
-        const companyText = this.deduplicateText(companyEl.textContent.trim());
+        const companyText = this.deduplicateText(companyEl.textContent?.trim() || '');
         if (this.isValidCompanyName(companyText)) {
           company = companyText;
           console.log(`✅ Found company with selector "${sel}": ${company}`);
@@ -1243,7 +1398,7 @@ export class LinkedInExtractor {
     for (const sel of dateSelectors) {
       const dateEl = element.querySelector(sel);
       if (dateEl && dateEl.textContent?.trim()) {
-        const dateText = dateEl.textContent.trim();
+        const dateText = dateEl.textContent?.trim() || '';
         if (this.looksLikeDateRange(dateText)) {
           dateRange = dateText;
           console.log(`✅ Found date range with selector "${sel}": ${dateRange}`);
@@ -1355,48 +1510,736 @@ export class LinkedInExtractor {
   }
 
   async extractEducationBasic() {
-    console.log('🎓 Extracting basic education info...');
+    console.log('🎓 Extracting education info...');
 
     const educations = [];
 
     try {
-      // Look for education section
-      const eduSection = document.querySelector('#education, .education-section');
+      // Look for education section with multiple selectors
+      const educationSelectors = [
+        '#education',
+        '.education-section',
+        '[data-section="education"]',
+        'section[id*="education"]'
+      ];
+      
+      let eduSection = null;
+      for (const selector of educationSelectors) {
+        eduSection = document.querySelector(selector);
+        if (eduSection) {
+          console.log(`✅ Found education section with selector: ${selector}`);
+          break;
+        }
+      }
+      
       if (!eduSection) {
-        console.log('⚠️ Education section not found');
+        console.log('⚠️ Education section not found - checking page structure...');
+        this.debugEducationSection();
         return educations;
       }
 
-      // Extract basic education info
-      const eduElements = eduSection.querySelectorAll('.pvs-list__item--line-separated, .pvs-entity');
+      // Scroll to education section to ensure it's loaded
+      console.log('📍 Scrolling to education section...');
+      eduSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await this.wait(2000);
 
-      for (const edu of eduElements) {
-        try {
-          const schoolElement = edu.querySelector('.pvs-entity__path-node, .education-item__school');
-          const degreeElement = edu.querySelector('.pvs-entity__path-node + span, .education-item__degree');
+      // Try to click "Show all education" button if it exists
+      await this.clickShowAllEducation();
 
-          if (schoolElement) {
-            const eduData = {
-              school: schoolElement.textContent.trim(),
-              degree: degreeElement ? degreeElement.textContent.trim() : null
-            };
+      // Try structured extraction first
+      const structuredEducations = await this.extractStructuredEducation();
+      if (structuredEducations.length > 0) {
+        console.log(`✅ Found ${structuredEducations.length} structured education entries`);
+        return structuredEducations;
+      }
 
-            if (eduData.school && eduData.school.length > 2) {
-              educations.push(eduData);
-            }
+      // Fallback to text-based extraction
+      console.log('⚠️ Falling back to text-based education extraction...');
+      
+      // Get all text from the education section and analyze it
+      const educationText = eduSection.textContent || '';
+      console.log(`📍 Education section text (first 300 chars): ${educationText.substring(0, 300)}...`);
+      
+      // Split into meaningful lines
+      const lines = educationText
+        .split('\n')
+        .map(line => this.deduplicateText(line.trim()))
+        .filter(line => line.length > 2 && line.length < 150)
+        .filter(line => {
+          const lowerLine = line.toLowerCase();
+          return !lowerLine.includes('education') && // Skip section header
+                 !lowerLine.includes('show all') && // Skip "Show all" buttons
+                 !lowerLine.includes('show ') && // Skip "Show" buttons
+                 !lowerLine.includes('view ') && // Skip "View" links
+                 !lowerLine.includes('ago') && // Skip "2 months ago" type text
+                 !lowerLine.includes('connection') && // Skip connection text
+                 !lowerLine.includes('mutual') && // Skip mutual connections
+                 !lowerLine.includes('message') && // Skip message buttons
+                 !line.match(/^\d+$/); // Skip standalone numbers
+        });
+
+      console.log(`📍 Filtered education lines (first 10): ${lines.slice(0, 10).join(' | ')}`);
+
+      // Parse education entries
+      const potentialSchools = [];
+      const potentialDegrees = [];
+      const dateRanges = [];
+      
+      // Collect potential schools, degrees, and dates
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        if (this.looksLikeDateRange(line)) {
+          dateRanges.push({ text: line, index: i });
+          continue;
+        }
+        
+        if (this.isValidSchoolName(line)) {
+          potentialSchools.push({ text: line, index: i });
+          console.log(`🏫 Found potential school: "${line}"`);
+        }
+        
+        if (this.isValidDegreeName(line)) {
+          potentialDegrees.push({ text: line, index: i });
+          console.log(`🎓 Found potential degree: "${line}"`);
+        }
+      }
+      
+      // Match schools with degrees based on proximity
+      for (const school of potentialSchools) {
+        let closestDegree = null;
+        let smallestDistance = Infinity;
+        
+        for (const degree of potentialDegrees) {
+          const distance = Math.abs(degree.index - school.index);
+          if (distance < smallestDistance && distance <= 3) {
+            smallestDistance = distance;
+            closestDegree = degree;
           }
-        } catch (e) {
-          console.log(`⚠️ Failed to parse education:`, e.message);
+        }
+        
+        // Find the closest date range
+        let closestDate = '';
+        let smallestDateDistance = Infinity;
+        
+        for (const dateRange of dateRanges) {
+          const distance = Math.abs(dateRange.index - school.index);
+          if (distance < smallestDateDistance && distance <= 3) {
+            smallestDateDistance = distance;
+            closestDate = dateRange.text;
+          }
+        }
+        
+        const education = {
+          school: school.text,
+          degree: closestDegree ? closestDegree.text : '',
+          date_range: closestDate,
+          field_of_study: ''
+        };
+        
+        educations.push(education);
+        console.log(`✅ Matched education: "${school.text}" - "${education.degree || 'No degree'}" (${closestDate})`);
+        
+        // Remove used degree to avoid duplicates
+        if (closestDegree) {
+          const degreeIndex = potentialDegrees.indexOf(closestDegree);
+          if (degreeIndex > -1) {
+            potentialDegrees.splice(degreeIndex, 1);
+          }
         }
       }
 
-      console.log(`✅ Extracted ${educations.length} basic education entries`);
+      console.log(`✅ Extracted ${educations.length} education entries`);
 
     } catch (error) {
       console.error('❌ Failed to extract education:', error);
     }
 
     return educations;
+  }
+
+  async clickShowAllEducation() {
+    console.log('🔍 Looking for "Show all education" button...');
+    
+    try {
+      const showAllSelectors = [
+        'button[aria-label*="Show all"][aria-label*="education"]',
+        'button[aria-label*="education"][aria-label*="Show"]',
+        'a[href*="education"]',
+        '#education ~ * button[aria-label*="Show"]',
+        '.pvs-list__footer-wrapper button',
+        '.pvs-list__see-more-button'
+      ];
+
+      for (const selector of showAllSelectors) {
+        const button = document.querySelector(selector);
+        if (button && button.offsetParent !== null) {
+          console.log(`✅ Found education show all button with selector: ${selector}`);
+          try {
+            button.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            await this.wait(500);
+            button.click();
+            await this.wait(2000);
+            console.log('✅ Clicked show all education button');
+            return true;
+          } catch (clickError) {
+            console.log(`⚠️ Failed to click education button with selector ${selector}:`, clickError.message);
+          }
+        }
+      }
+      
+      console.log('⚠️ No "Show all education" button found');
+      return false;
+    } catch (error) {
+      console.error('❌ Failed to click show all education:', error);
+      return false;
+    }
+  }
+
+  async extractStructuredEducation() {
+    console.log('🏗️ Attempting structured education extraction...');
+
+    const educations = [];
+
+    try {
+      // Updated selectors for current LinkedIn structure
+      const educationSelectors = [
+        '#education ~ div .pvs-list__item--line-separated',
+        '#education ~ * .pvs-list__item--line-separated',
+        '.pvs-list__item--line-separated',
+        '.pvs-entity__path-node',
+        '.education-item',
+        '[data-view-name="profile-component-entity"]',
+        '#education + div li',
+        '#education ~ div li'
+      ];
+
+      for (const selector of educationSelectors) {
+        const eduElements = document.querySelectorAll(selector);
+        
+        if (eduElements.length > 0) {
+          console.log(`✅ Found ${eduElements.length} education elements with selector: ${selector}`);
+          
+          for (const eduEl of eduElements) {
+            try {
+              const extractedEdu = this.extractEducationFromElement(eduEl);
+              if (extractedEdu) {
+                educations.push(extractedEdu);
+                console.log(`✅ Structured education extraction: "${extractedEdu.school}" - "${extractedEdu.degree}"`);
+              }
+            } catch (e) {
+              console.log('⚠️ Failed to parse education element:', e.message);
+            }
+          }
+          
+          if (educations.length > 0) {
+            console.log(`✅ Successfully extracted ${educations.length} education entries with selector: ${selector}`);
+            break;
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ Structured education extraction failed:', error);
+    }
+
+    return educations;
+  }
+
+  extractEducationFromElement(element) {
+    console.log('🔍 Extracting education from element...');
+    
+    let school = null, degree = null, dateRange = '', fieldOfStudy = '';
+
+    // Try various selectors for school name
+    const schoolSelectors = [
+      'h3',
+      '.pvs-entity__path-node',
+      '.education-item__school',
+      'div[data-field="school"]',
+      'a[data-field="education-school-name"]'
+    ];
+
+    for (const sel of schoolSelectors) {
+      const schoolEl = element.querySelector(sel);
+      if (schoolEl && schoolEl.textContent?.trim()) {
+        const schoolText = this.deduplicateText(schoolEl.textContent?.trim() || '');
+        if (this.isValidSchoolName(schoolText)) {
+          school = schoolText;
+          console.log(`✅ Found school with selector "${sel}": ${school}`);
+          break;
+        }
+      }
+    }
+
+    // Try various selectors for degree
+    const degreeSelectors = [
+      'h4',
+      '.pvs-entity__path-node + span',
+      '.education-item__degree',
+      'div[data-field="degree"]',
+      'h3 + div span',
+      'h3 ~ div span'
+    ];
+
+    for (const sel of degreeSelectors) {
+      const degreeEl = element.querySelector(sel);
+      if (degreeEl && degreeEl.textContent?.trim()) {
+        const degreeText = this.deduplicateText(degreeEl.textContent?.trim() || '');
+        if (this.isValidDegreeName(degreeText)) {
+          degree = degreeText;
+          console.log(`✅ Found degree with selector "${sel}": ${degree}`);
+          break;
+        }
+      }
+    }
+
+    // Try to find date range
+    const dateSelectors = [
+      'time',
+      '.pvs-entity__caption-wrapper',
+      '.education-item__duration'
+    ];
+
+    for (const sel of dateSelectors) {
+      const dateEl = element.querySelector(sel);
+      if (dateEl && dateEl.textContent?.trim()) {
+        const dateText = dateEl.textContent?.trim() || '';
+        if (this.looksLikeDateRange(dateText)) {
+          dateRange = dateText;
+          break;
+        }
+      }
+    }
+
+    // If structured approach fails, try text-based extraction
+    if (!school) {
+      console.log('⚠️ Structured school extraction failed, trying text-based approach...');
+      const elementText = element.textContent || '';
+      const lines = elementText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+      
+      for (const line of lines) {
+        const cleanLine = this.deduplicateText(line);
+        if (this.isValidSchoolName(cleanLine)) {
+          school = cleanLine;
+          console.log(`✅ Found school via text parsing: "${school}"`);
+          break;
+        }
+      }
+    }
+
+    // Return education if we found a school
+    if (school && school.length > 2) {
+      return {
+        school: school,
+        degree: degree || '',
+        date_range: dateRange,
+        field_of_study: fieldOfStudy
+      };
+    }
+
+    console.log('⚠️ Could not extract valid education from element');
+    return null;
+  }
+
+  isValidSchoolName(text) {
+    if (!text || text.length < 3 || text.length > 100) return false;
+    
+    const lowerText = text.toLowerCase();
+    
+    // Skip common non-school patterns
+    if (lowerText.match(/^\d{4}/) || // Starts with year
+        lowerText.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/) || // Contains month
+        lowerText.includes('·') ||
+        lowerText.includes('full-time') ||
+        lowerText.includes('part-time') ||
+        lowerText.includes('bachelor') ||
+        lowerText.includes('master') ||
+        lowerText.includes('degree') ||
+        lowerText.includes('yrs') ||
+        lowerText.includes('mos')) {
+      return false;
+    }
+
+    // School indicators
+    const schoolIndicators = [
+      'university', 'college', 'school', 'institute', 'academy',
+      'polytechnic', 'seminary', 'conservatory', 'tech',
+      'state university', 'community college', 'junior college'
+    ];
+    
+    const hasSchoolWords = schoolIndicators.some(word => lowerText.includes(word));
+    
+    // Check for proper capitalization (most school names are capitalized)
+    const words = text.trim().split(/\s+/);
+    const hasProperCapitalization = words.some(word => /^[A-Z]/.test(word));
+    
+    return hasSchoolWords || (hasProperCapitalization && words.length >= 1);
+  }
+
+  isValidDegreeName(text) {
+    if (!text || text.length < 2 || text.length > 100) return false;
+    
+    const lowerText = text.toLowerCase();
+    
+    // Skip common non-degree patterns
+    if (lowerText.match(/^\d{4}/) || // Starts with year
+        lowerText.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/) || // Contains month
+        lowerText.includes('·') ||
+        lowerText.includes('university') ||
+        lowerText.includes('college') ||
+        lowerText.includes('school') ||
+        lowerText.includes('yrs') ||
+        lowerText.includes('mos')) {
+      return false;
+    }
+
+    // Degree indicators
+    const degreeIndicators = [
+      'bachelor', 'master', 'doctorate', 'phd', 'md', 'jd', 'mba',
+      'bs', 'ba', 'ms', 'ma', 'degree', 'diploma', 'certificate',
+      'associate', 'graduate', 'undergraduate', 'bsc', 'msc',
+      'engineering', 'science', 'arts', 'business', 'education'
+    ];
+    
+    return degreeIndicators.some(word => lowerText.includes(word));
+  }
+
+  debugEducationSection() {
+    console.log('🔍 DEBUG: Analyzing education section structure...');
+    
+    // Look for any element that might contain education info
+    const possibleEducationElements = [
+      document.querySelector('section[id*="education"]'),
+      document.querySelector('[data-section*="education"]'),
+      document.querySelector('.education'),
+      ...Array.from(document.querySelectorAll('h2')).filter(h2 => 
+        h2.textContent?.toLowerCase().includes('education'))
+    ];
+    
+    console.log('📍 Possible education elements found:', possibleEducationElements.length);
+    
+    possibleEducationElements.forEach((el, i) => {
+      if (el) {
+        console.log(`Education element ${i}:`, {
+          tagName: el.tagName,
+          id: el.id,
+          className: el.className,
+          textPreview: el.textContent?.substring(0, 100)
+        });
+      }
+    });
+    
+    // Check for common LinkedIn structure patterns
+    const commonStructures = [
+      '.pvs-list__item--line-separated',
+      '.pvs-entity__path-node',
+      'section[data-section]'
+    ];
+    
+    commonStructures.forEach(selector => {
+      const elements = document.querySelectorAll(selector);
+      console.log(`Found ${elements.length} elements with selector: ${selector}`);
+    });
+  }
+
+  // Comprehensive validation and data quality assurance
+  validateAndCleanProfileData(profileData) {
+    console.log('🔍 Validating and cleaning profile data...');
+    
+    const validatedData = {
+      personal_info: this.validatePersonalInfo(profileData.personal_info || {}),
+      summary: this.validateSummary(profileData.summary || ''),
+      work_experience: this.validateExperiences(profileData.work_experience || []),
+      education: this.validateEducations(profileData.education || []),
+      skills: this.validateSkills(profileData.skills || []),
+      projects: profileData.projects || [],
+      languages: profileData.languages || [],
+      certifications: this.validateCertifications(profileData.certifications || [])
+    };
+    
+    // Log validation results
+    console.log('✅ Data validation completed:', {
+      personal_info_valid: Object.keys(validatedData.personal_info).length > 0,
+      summary_valid: validatedData.summary.length > 0,
+      experience_count: validatedData.work_experience.length,
+      education_count: validatedData.education.length,
+      skills_count: validatedData.skills.length,
+      certifications_count: validatedData.certifications.length
+    });
+    
+    return validatedData;
+  }
+
+  validatePersonalInfo(personalInfo) {
+    console.log('👤 Validating personal information...');
+    
+    const validated = {};
+    
+    // Validate name fields
+    if (personalInfo.full_name && typeof personalInfo.full_name === 'string' && 
+        personalInfo.full_name.trim().length > 0) {
+      validated.full_name = personalInfo.full_name.trim();
+      validated.name = validated.full_name; // Compatibility
+      
+      // Parse first and last name if not already present
+      if (!personalInfo.first_name || !personalInfo.last_name) {
+        const nameParts = validated.full_name.split(' ').filter(part => part.length > 0);
+        if (nameParts.length >= 2) {
+          validated.first_name = nameParts[0];
+          validated.last_name = nameParts[nameParts.length - 1];
+        } else if (nameParts.length === 1) {
+          validated.first_name = nameParts[0];
+        }
+      } else {
+        validated.first_name = personalInfo.first_name;
+        validated.last_name = personalInfo.last_name;
+      }
+    }
+    
+    // Validate headline
+    if (personalInfo.headline && typeof personalInfo.headline === 'string' && 
+        personalInfo.headline.trim().length > 5) {
+      validated.headline = personalInfo.headline.trim();
+    }
+    
+    // Validate location
+    if (personalInfo.location && typeof personalInfo.location === 'string' && 
+        personalInfo.location.trim().length > 2) {
+      validated.location = personalInfo.location.trim();
+    }
+    
+    // Validate email
+    if (personalInfo.email && typeof personalInfo.email === 'string' && 
+        personalInfo.email.includes('@') && personalInfo.email.includes('.')) {
+      validated.email = personalInfo.email.trim().toLowerCase();
+    }
+    
+    // Validate phone
+    if (personalInfo.phone && typeof personalInfo.phone === 'string' && 
+        personalInfo.phone.trim().length > 5) {
+      validated.phone = personalInfo.phone.trim();
+    }
+    
+    // Validate website
+    if (personalInfo.website && typeof personalInfo.website === 'string' && 
+        (personalInfo.website.startsWith('http') || personalInfo.website.includes('.'))) {
+      validated.website = personalInfo.website.trim();
+    }
+    
+    // Validate LinkedIn URL
+    if (personalInfo.linkedin && typeof personalInfo.linkedin === 'string' && 
+        personalInfo.linkedin.includes('linkedin.com')) {
+      validated.linkedin = personalInfo.linkedin.trim();
+    }
+    
+    console.log(`✅ Personal info validation: ${Object.keys(validated).length} fields validated`);
+    return validated;
+  }
+
+  validateSummary(summary) {
+    console.log('📝 Validating summary...');
+    
+    if (!summary || typeof summary !== 'string') {
+      console.log('⚠️ Summary is empty or invalid');
+      return '';
+    }
+    
+    const cleaned = summary.trim();
+    
+    if (cleaned.length < 10) {
+      console.log('⚠️ Summary too short, discarding');
+      return '';
+    }
+    
+    if (cleaned.length > 10000) {
+      console.log('⚠️ Summary too long, truncating');
+      return cleaned.substring(0, 10000) + '...';
+    }
+    
+    console.log(`✅ Summary validated: ${cleaned.length} characters`);
+    return cleaned;
+  }
+
+  validateExperiences(experiences) {
+    console.log('💼 Validating work experiences...');
+    
+    if (!Array.isArray(experiences)) {
+      console.log('⚠️ Experiences is not an array');
+      return [];
+    }
+    
+    const validatedExperiences = [];
+    
+    for (const exp of experiences) {
+      if (!exp || typeof exp !== 'object') continue;
+      
+      const validatedExp = {};
+      
+      // Validate title
+      if (exp.title && typeof exp.title === 'string' && exp.title.trim().length > 2) {
+        validatedExp.title = exp.title.trim();
+      } else {
+        console.log('⚠️ Skipping experience with invalid title:', exp);
+        continue;
+      }
+      
+      // Validate company
+      if (exp.company && typeof exp.company === 'string' && exp.company.trim().length > 1) {
+        validatedExp.company = exp.company.trim();
+      } else {
+        console.log('⚠️ Skipping experience with invalid company:', exp);
+        continue;
+      }
+      
+      // Validate date range
+      if (exp.date_range && typeof exp.date_range === 'string') {
+        validatedExp.date_range = exp.date_range.trim();
+      } else {
+        validatedExp.date_range = '';
+      }
+      
+      // Validate location
+      if (exp.location && typeof exp.location === 'string') {
+        validatedExp.location = exp.location.trim();
+      } else {
+        validatedExp.location = '';
+      }
+      
+      // Validate description
+      if (exp.description && typeof exp.description === 'string') {
+        validatedExp.description = exp.description.trim();
+      } else {
+        validatedExp.description = `${validatedExp.title} at ${validatedExp.company}`;
+      }
+      
+      validatedExperiences.push(validatedExp);
+    }
+    
+    console.log(`✅ Experience validation: ${validatedExperiences.length} out of ${experiences.length} experiences validated`);
+    return validatedExperiences;
+  }
+
+  validateEducations(educations) {
+    console.log('🎓 Validating education entries...');
+    
+    if (!Array.isArray(educations)) {
+      console.log('⚠️ Education is not an array');
+      return [];
+    }
+    
+    const validatedEducations = [];
+    
+    for (const edu of educations) {
+      if (!edu || typeof edu !== 'object') continue;
+      
+      const validatedEdu = {};
+      
+      // Validate school
+      if (edu.school && typeof edu.school === 'string' && edu.school.trim().length > 2) {
+        validatedEdu.school = edu.school.trim();
+      } else {
+        console.log('⚠️ Skipping education with invalid school:', edu);
+        continue;
+      }
+      
+      // Validate degree
+      if (edu.degree && typeof edu.degree === 'string' && edu.degree.trim().length > 0) {
+        validatedEdu.degree = edu.degree.trim();
+      } else {
+        validatedEdu.degree = '';
+      }
+      
+      // Validate date range
+      if (edu.date_range && typeof edu.date_range === 'string') {
+        validatedEdu.date_range = edu.date_range.trim();
+      } else {
+        validatedEdu.date_range = '';
+      }
+      
+      // Validate field of study
+      if (edu.field_of_study && typeof edu.field_of_study === 'string') {
+        validatedEdu.field_of_study = edu.field_of_study.trim();
+      } else {
+        validatedEdu.field_of_study = '';
+      }
+      
+      validatedEducations.push(validatedEdu);
+    }
+    
+    console.log(`✅ Education validation: ${validatedEducations.length} out of ${educations.length} education entries validated`);
+    return validatedEducations;
+  }
+
+  validateSkills(skills) {
+    console.log('🛠️ Validating skills...');
+    
+    if (!Array.isArray(skills)) {
+      console.log('⚠️ Skills is not an array');
+      return [];
+    }
+    
+    const validatedSkills = [];
+    const seenSkills = new Set();
+    
+    for (const skill of skills) {
+      if (!skill || typeof skill !== 'string') continue;
+      
+      const cleanSkill = skill.trim();
+      
+      // Skip if empty, too short, or too long
+      if (cleanSkill.length < 2 || cleanSkill.length > 80) continue;
+      
+      // Skip if already seen (case-insensitive)
+      const lowerSkill = cleanSkill.toLowerCase();
+      if (seenSkills.has(lowerSkill)) continue;
+      
+      // Additional validation using existing isValidSkill method
+      if (this.isValidSkill(cleanSkill)) {
+        validatedSkills.push(cleanSkill);
+        seenSkills.add(lowerSkill);
+      }
+    }
+    
+    console.log(`✅ Skills validation: ${validatedSkills.length} out of ${skills.length} skills validated`);
+    return validatedSkills;
+  }
+
+  validateCertifications(certifications) {
+    console.log('🏆 Validating certifications...');
+    
+    if (!Array.isArray(certifications)) {
+      console.log('⚠️ Certifications is not an array');
+      return [];
+    }
+    
+    const validatedCertifications = [];
+    
+    for (const cert of certifications) {
+      if (!cert || typeof cert !== 'object') continue;
+      
+      const validatedCert = {};
+      
+      // Validate certification name
+      if (cert.name && typeof cert.name === 'string' && cert.name.trim().length > 2) {
+        validatedCert.name = cert.name.trim();
+      } else {
+        console.log('⚠️ Skipping certification with invalid name:', cert);
+        continue;
+      }
+      
+      // Validate issuer
+      if (cert.issuer && typeof cert.issuer === 'string' && cert.issuer.trim().length > 0) {
+        validatedCert.issuer = cert.issuer.trim();
+      } else {
+        validatedCert.issuer = '';
+      }
+      
+      validatedCertifications.push(validatedCert);
+    }
+    
+    console.log(`✅ Certification validation: ${validatedCertifications.length} out of ${certifications.length} certifications validated`);
+    return validatedCertifications;
   }
 
   async scrollToLoadAllSections() {
@@ -1499,7 +2342,7 @@ export class LinkedInExtractor {
 
   // Helper method to fix text deduplication issues
   deduplicateText(text) {
-    if (!text || typeof text !== 'string') return text;
+    if (!text || typeof text !== 'string') return text || '';
     
     // LinkedIn sometimes duplicates text content
     // Example: "Embassy SuitesEmbassy Suites" -> "Embassy Suites"
