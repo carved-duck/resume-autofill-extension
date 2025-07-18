@@ -891,7 +891,7 @@ export class LinkedInExtractor {
           for (const expEl of expElements) {
             try {
               // Try multiple extraction strategies for each element
-              const extractedExp = this.extractExperienceFromElement(expEl);
+              const extractedExp = await this.extractExperienceFromElement(expEl);
               if (extractedExp) {
                 experiences.push(extractedExp);
                 console.log(`✅ Structured extraction: "${extractedExp.title}" at "${extractedExp.company}"`);
@@ -992,24 +992,38 @@ export class LinkedInExtractor {
   }
 
   isValidCompanyName(company) {
-    if (!company || company.length < 2 || company.length > 100) return false;
+    console.log(`🔍 DEBUG: Validating company name: "${company}"`);
+    
+    if (!company || company.length < 2 || company.length > 100) {
+      console.log(`❌ DEBUG: Failed length check: length=${company?.length}`);
+      return false;
+    }
     
     const lowerCompany = company.toLowerCase();
     
     // Skip common non-company patterns
-    if (lowerCompany.match(/^\d{4}/) || // Starts with year
-        lowerCompany.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/) || // Contains month
-        lowerCompany.includes('full-time') ||
-        lowerCompany.includes('part-time') ||
-        lowerCompany.includes('contract') ||
-        lowerCompany.includes('permanent') || // Add this common LinkedIn job type
-        lowerCompany.includes('yrs') ||
-        lowerCompany.includes('mos') ||
-        lowerCompany.includes('ago') ||
-        lowerCompany.includes('·') ||
-        this.looksLikeMetadata(company)) {
-      return false;
+    const checks = [
+      { test: lowerCompany.match(/^\d{4}/), name: 'starts with year' },
+      { test: lowerCompany.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/), name: 'contains month' },
+      { test: lowerCompany.includes('full-time'), name: 'contains full-time' },
+      { test: lowerCompany.includes('part-time'), name: 'contains part-time' },
+      { test: lowerCompany.includes('contract'), name: 'contains contract' },
+      { test: lowerCompany.includes('permanent'), name: 'contains permanent' },
+      { test: lowerCompany.includes('yrs'), name: 'contains yrs' },
+      { test: lowerCompany.includes('mos'), name: 'contains mos' },
+      { test: lowerCompany.includes('ago'), name: 'contains ago' },
+      { test: lowerCompany.includes('·'), name: 'contains bullet point' },
+      { test: this.looksLikeMetadata(company), name: 'looks like metadata' }
+    ];
+    
+    for (const check of checks) {
+      if (check.test) {
+        console.log(`❌ DEBUG: Failed validation - ${check.name}: "${company}"`);
+        return false;
+      }
     }
+    
+    console.log(`✅ DEBUG: Passed initial checks for: "${company}"`);
 
     // Skip obvious job titles being mistaken for companies
     const jobTitleWords = [
@@ -1285,7 +1299,7 @@ export class LinkedInExtractor {
           
           for (const expEl of expElements) {
             try {
-              const extractedExp = this.extractExperienceFromElement(expEl);
+              const extractedExp = await this.extractExperienceFromElement(expEl);
               if (extractedExp) {
                 extractedExp.source = 'detail_page';
                 detailedExperiences.push(extractedExp);
@@ -1331,7 +1345,7 @@ export class LinkedInExtractor {
     }
   }
 
-  extractExperienceFromElement(element) {
+  async extractExperienceFromElement(element) {
     console.log('🔍 Extracting experience from element...');
     
     // Strategy 1: Look for standard LinkedIn structure
@@ -1402,6 +1416,95 @@ export class LinkedInExtractor {
         if (this.looksLikeDateRange(dateText)) {
           dateRange = dateText;
           console.log(`✅ Found date range with selector "${sel}": ${dateRange}`);
+          break;
+        }
+      }
+    }
+
+    // Try to extract job description
+    let description = '';
+    const descriptionSelectors = [
+      '.pvs-list__item-text',
+      '.pv-entity__description',
+      '.experience-item__description',
+      '.artdeco-entity-lockup__content .pvs-entity__path-node span',
+      '.inline-show-more-text',
+      '.pvs-entity__sub-components',
+      'div[data-field="description"]'
+    ];
+
+    for (const sel of descriptionSelectors) {
+      const descEl = element.querySelector(sel);
+      if (descEl) {
+        let descText = '';
+        
+        // Check if it's a "show more" expandable element
+        const showMoreBtn = descEl.querySelector('.inline-show-more-text__button, .show-more-less-html__button');
+        if (showMoreBtn) {
+          console.log('🔄 Found "show more" button, clicking to expand...');
+          try {
+            showMoreBtn.click();
+            // Wait a moment for content to expand
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } catch (e) {
+            console.log('⚠️ Could not click show more button:', e);
+          }
+        }
+        
+        // Extract all text content, preserving paragraph structure
+        const textNodes = [];
+        const walker = document.createTreeWalker(
+          descEl,
+          NodeFilter.SHOW_TEXT,
+          null,
+          false
+        );
+        
+        let node;
+        while (node = walker.nextNode()) {
+          const text = node.textContent?.trim();
+          if (text && text.length > 3 && !text.match(/^(show|see|more|less)$/i)) {
+            textNodes.push(text);
+          }
+        }
+        
+        if (textNodes.length > 0) {
+          // Join with proper spacing and clean up
+          descText = textNodes.join(' ').replace(/\s+/g, ' ').trim();
+          
+          // Filter out metadata and unwanted content
+          if (descText.length > 20 && 
+              !this.looksLikeDateRange(descText) && 
+              !this.looksLikeMetadata(descText) &&
+              !descText.toLowerCase().includes('skills:') &&
+              !descText.match(/^(full-time|part-time|contract|permanent)$/i)) {
+            
+            description = this.deduplicateText(descText);
+            console.log(`✅ Found description with selector "${sel}": ${description.substring(0, 100)}...`);
+            break;
+          }
+        }
+      }
+    }
+
+    // If no structured description found, look in the element's direct text content
+    if (!description) {
+      console.log('🔍 No structured description found, extracting from element text...');
+      const elementText = element.textContent || '';
+      const lines = elementText.split('\n').map(l => l.trim()).filter(l => l.length > 10);
+      
+      // Look for description-like content (longer lines that aren't titles/companies/dates)
+      for (const line of lines) {
+        const cleanLine = this.deduplicateText(line);
+        if (cleanLine.length > 50 && 
+            !this.isValidJobTitle(cleanLine) && 
+            !this.isValidCompanyName(cleanLine) && 
+            !this.looksLikeDateRange(cleanLine) && 
+            !this.looksLikeMetadata(cleanLine) &&
+            !cleanLine.toLowerCase().includes('skills:')) {
+          
+          description = cleanLine;
+          console.log(`✅ Found description from text content: ${description.substring(0, 100)}...`);
           break;
         }
       }
@@ -1496,12 +1599,15 @@ export class LinkedInExtractor {
 
     // Return experience if we found both title and company
     if (title && company && title !== company) {
+      // Use extracted description or fallback to basic format
+      const finalDescription = description || `${title} at ${company}`;
+      
       return {
         title: title,
         company: company,
         date_range: dateRange,
         location: location,
-        description: `${title} at ${company}`
+        description: finalDescription
       };
     }
 
@@ -2316,17 +2422,24 @@ export class LinkedInExtractor {
   extractCompanyFromMetadata(text) {
     if (!text || typeof text !== 'string') return null;
     
+    console.log(`🔍 DEBUG: Extracting from metadata: "${text}"`);
+    console.log(`🔍 DEBUG: Text char codes:`, Array.from(text).map(c => `${c}(${c.charCodeAt(0)})`).join(' '));
+    
     // Handle patterns like "AEON Corporation · Permanent", "Gaba Corporation · Part-time", etc.
+    // Note: LinkedIn might use different bullet characters
     const metadataPatterns = [
-      /^([^·]+)\s*·\s*(permanent|part-time|full-time|contract)/i,
-      /^([^·]+)\s*·\s*\w+$/i, // Generic "Company · Something" pattern
-      /^(.+?)\s+·\s+.+$/i     // Even more generic fallback
+      /^([^·•\u2022\u2027]+)\s*[·•\u2022\u2027]\s*(permanent|part-time|full-time|contract)/i,
+      /^([^·•\u2022\u2027]+)\s*[·•\u2022\u2027]\s*\w+$/i, // Generic "Company · Something" pattern
+      /^(.+?)\s+[·•\u2022\u2027]\s+.+$/i     // Even more generic fallback
     ];
     
-    for (const pattern of metadataPatterns) {
+    for (let i = 0; i < metadataPatterns.length; i++) {
+      const pattern = metadataPatterns[i];
+      console.log(`🔍 DEBUG: Testing pattern ${i + 1}: ${pattern}`);
       const match = text.match(pattern);
       if (match && match[1]) {
         const companyName = match[1].trim();
+        console.log(`🎯 DEBUG: Pattern ${i + 1} matched! Raw extraction: "${companyName}"`);
         console.log(`🔍 Testing metadata pattern: "${text}" → potential company: "${companyName}"`);
         if (this.isValidCompanyName(companyName)) {
           console.log(`🏢 Extracted company from metadata: "${text}" → "${companyName}"`);
@@ -2334,6 +2447,8 @@ export class LinkedInExtractor {
         } else {
           console.log(`❌ "${companyName}" failed company validation`);
         }
+      } else {
+        console.log(`❌ DEBUG: Pattern ${i + 1} did not match`);
       }
     }
     
