@@ -112,23 +112,29 @@ if (window.resumeAutoFillContentScriptLoaded) {
           switch (message.action) {
             case 'fillForm':
               this.handleFillForm(message, sendResponse);
-              break;
+              return true; // Keep message channel open for async response
 
             case 'extractLinkedIn':
-              this.handleLinkedInExtraction(message, sendResponse);
-              break;
+              this.handleLinkedInExtraction(message, sendResponse).catch(error => {
+                console.error('❌ Unhandled error in LinkedIn extraction:', error);
+                sendResponse({ success: false, error: error.message });
+              });
+              return true; // Keep message channel open for async response
               
             case 'testHybridExtraction':
-              this.handleHybridTest(sendResponse);
-              break;
+              this.handleHybridTest(sendResponse).catch(error => {
+                console.error('❌ Unhandled error in hybrid test:', error);
+                sendResponse({ success: false, error: error.message });
+              });
+              return true; // Keep message channel open for async response
 
             case 'debugLinkedIn':
               this.handleLinkedInDebug(sendResponse);
-              break;
+              return true; // Keep message channel open for async response
 
             case 'analyzePageStructure':
               this.handlePageAnalysis(sendResponse);
-              break;
+              return true; // Keep message channel open for async response
 
             case 'ping':
               sendResponse({
@@ -139,7 +145,7 @@ if (window.resumeAutoFillContentScriptLoaded) {
                 error: this.initializationError || null,
                 timestamp: new Date().toISOString()
               });
-              break;
+              return false; // Synchronous response, close channel
 
             default:
               // Let other modules handle their specific messages
@@ -275,7 +281,7 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
         // Check if we're actually on LinkedIn
         if (!window.location.hostname.includes('linkedin.com')) {
-          throw new Error('Not on LinkedIn page');
+          throw new Error('This feature only works on LinkedIn profile pages. Please navigate to a LinkedIn profile first.');
         }
 
         // Check if content script is fully initialized
@@ -341,7 +347,7 @@ if (window.resumeAutoFillContentScriptLoaded) {
         
         // Check if we're actually on LinkedIn
         if (!window.location.hostname.includes('linkedin.com')) {
-          throw new Error('Not on LinkedIn page');
+          throw new Error('This feature only works on LinkedIn profile pages. Please navigate to a LinkedIn profile first.');
         }
 
         // Load LinkedIn extractor if not available
@@ -370,19 +376,20 @@ if (window.resumeAutoFillContentScriptLoaded) {
         
         // Check if we're actually on LinkedIn
         if (!window.location.hostname.includes('linkedin.com')) {
-          throw new Error('Not on LinkedIn page');
+          throw new Error('This feature only works on LinkedIn profile pages. Please navigate to a LinkedIn profile first.');
         }
 
-        // Load hybrid extractor
-        await this.loadHybridLinkedInExtractor();
+        // Load hybrid enhancement
+        const hybridLoaded = await this.loadHybridLinkedInExtractor();
 
-        if (!window.HybridLinkedInExtractor) {
-          throw new Error('Hybrid extractor not available');
+        if (!hybridLoaded) {
+          throw new Error('Hybrid mode not available (Ollama not running?)');
         }
 
-        // Run the comparison test
-        const hybridExtractor = new window.HybridLinkedInExtractor();
-        const comparison = await hybridExtractor.debugCompareExtractions();
+        // Load traditional extractor and run comparison
+        await this.loadLinkedInExtractor();
+        const extractor = new window.LinkedInExtractor();
+        const comparison = await extractor.debugCompareExtractions();
         
         console.log('✅ Hybrid comparison test completed');
         sendResponse({ 
@@ -401,13 +408,16 @@ if (window.resumeAutoFillContentScriptLoaded) {
       console.log(`🔍 Starting LinkedIn profile extraction... (Hybrid: ${useHybridMode})`);
 
       if (useHybridMode) {
-        // Load hybrid extractor
-        await this.loadHybridLinkedInExtractor();
+        // Try to load hybrid enhancement
+        const hybridLoaded = await this.loadHybridLinkedInExtractor();
         
-        if (window.HybridLinkedInExtractor) {
+        if (hybridLoaded) {
           try {
-            const hybridExtractor = new window.HybridLinkedInExtractor();
-            const profileData = await hybridExtractor.extractProfileData();
+            // The traditional extractor is now enhanced with hybrid capabilities
+            await this.loadLinkedInExtractor();
+            const extractor = new window.LinkedInExtractor();
+            extractor.setHybridMode(true);
+            const profileData = await extractor.extractProfileData();
             console.log('✅ Hybrid LinkedIn profile extracted:', profileData);
             return profileData;
           } catch (error) {
@@ -436,82 +446,46 @@ if (window.resumeAutoFillContentScriptLoaded) {
     }
 
     async loadHybridLinkedInExtractor() {
-      return new Promise((resolve, reject) => {
-        if (window.HybridLinkedInExtractor) {
-          resolve();
-          return;
-        }
+      if (window.HybridLinkedInExtractor) {
+        return true;
+      }
 
-        console.log('📦 Loading hybrid LinkedIn extractor...');
+      console.log('📦 Loading hybrid LinkedIn extractor...');
+      
+      try {
+        // Load the hybrid enhancer
+        const { loadHybridExtractor } = await import(chrome.runtime.getURL('js/modules/hybridExtractorLoader.js'));
+        const hybridAvailable = await loadHybridExtractor();
         
-        // Load Ollama client first
-        const ollamaScript = document.createElement('script');
-        ollamaScript.type = 'module';
-        ollamaScript.textContent = `
-          import { OllamaClient } from '${chrome.runtime.getURL('js/modules/ollamaClient.js')}';
-          import { HybridLinkedInExtractor } from '${chrome.runtime.getURL('js/modules/hybridLinkedInExtractor.js')}';
-          window.OllamaClient = OllamaClient;
-          window.HybridLinkedInExtractor = HybridLinkedInExtractor;
-          console.log('✅ Hybrid extractor modules loaded');
-        `;
-        
-        ollamaScript.onload = () => {
-          console.log('✅ Hybrid LinkedIn extractor loaded successfully');
-          resolve();
-        };
-        
-        ollamaScript.onerror = (error) => {
-          console.error('❌ Failed to load hybrid LinkedIn extractor:', error);
-          reject(error);
-        };
-        
-        document.head.appendChild(ollamaScript);
-      });
+        if (hybridAvailable) {
+          console.log('✅ Hybrid extractor loaded successfully');
+          return true;
+        } else {
+          console.warn('⚠️ Hybrid mode not available, using traditional');
+          return false;
+        }
+      } catch (error) {
+        console.error('❌ Failed to load hybrid extractor:', error);
+        return false;
+      }
     }
 
     async loadLinkedInExtractor() {
-      return new Promise((resolve, reject) => {
-        if (window.LinkedInExtractor) {
-          console.log('✅ LinkedIn extractor already loaded');
-          resolve();
-          return;
-        }
+      if (window.LinkedInExtractor) {
+        console.log('✅ LinkedIn extractor already loaded');
+        return;
+      }
 
-        try {
-          // Try to load the external LinkedIn extractor module
-          const script = document.createElement('script');
-          script.type = 'module';
-          script.src = chrome.runtime.getURL('js/modules/linkedinExtractor.js');
-          
-          script.onload = () => {
-            console.log('✅ LinkedIn extractor module loaded successfully');
-            // Import the class from the module
-            import(chrome.runtime.getURL('js/modules/linkedinExtractor.js'))
-              .then(module => {
-                window.LinkedInExtractor = module.LinkedInExtractor;
-                console.log('✅ LinkedIn extractor class imported and exposed to global scope');
-                resolve();
-              })
-              .catch(error => {
-                console.error('❌ Failed to import LinkedIn extractor:', error);
-                this.createFallbackExtractor();
-                resolve();
-              });
-          };
-
-          script.onerror = (error) => {
-            console.error('❌ Failed to load LinkedIn extractor module:', error);
-            this.createFallbackExtractor();
-            resolve();
-          };
-
-          document.head.appendChild(script);
-        } catch (error) {
-          console.error('❌ Error loading LinkedIn extractor:', error);
-          this.createFallbackExtractor();
-          resolve();
-        }
-      });
+      try {
+        console.log('📦 Loading LinkedIn extractor via direct import...');
+        // Use direct import - CSP compliant
+        const module = await import(chrome.runtime.getURL('js/modules/linkedinExtractor.js'));
+        window.LinkedInExtractor = module.LinkedInExtractor;
+        console.log('✅ LinkedIn extractor loaded successfully');
+      } catch (error) {
+        console.error('❌ Failed to load LinkedIn extractor:', error);
+        this.createFallbackExtractor();
+      }
     }
 
     createFallbackExtractor() {

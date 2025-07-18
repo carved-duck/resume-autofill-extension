@@ -237,13 +237,16 @@ class PopupController {
 
       this.showMessage('Extracting LinkedIn profile data...', 'info');
 
-      // Check if hybrid mode is enabled
+      // Check if hybrid mode is enabled (with null safety)
       const hybridModeToggle = document.getElementById('hybridModeToggle');
-      const useHybridMode = hybridModeToggle ? hybridModeToggle.checked : false;
+      const useHybridMode = hybridModeToggle?.checked || false;
 
       const response = await chrome.tabs.sendMessage(tab.id, {
         action: 'extractLinkedIn',
         useHybridMode: useHybridMode
+      }).catch(error => {
+        console.error('❌ Failed to send message to content script:', error);
+        throw new Error('Could not communicate with content script. Try refreshing the page.');
       });
 
       console.log('🎯 Full response from content script:', response);
@@ -328,6 +331,9 @@ class PopupController {
 
       const response = await chrome.tabs.sendMessage(tab.id, {
         action: 'testHybridExtraction'
+      }).catch(error => {
+        console.error('❌ Failed to send test message to content script:', error);
+        throw new Error('Could not communicate with content script. Try refreshing the page.');
       });
 
       if (response && response.success) {
@@ -343,33 +349,7 @@ class PopupController {
     }
   }
 
-  async debugLinkedInPage() {
-    try {
-      this.showMessage('Running LinkedIn page debug...', 'info');
-      
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      if (!tab.url.includes('linkedin.com')) {
-        this.showMessage('Please navigate to a LinkedIn profile page', 'error');
-        return;
-      }
-
-      // Send message to content script to run debug
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        action: 'debugLinkedIn'
-      });
-
-      if (response && response.success) {
-        this.showMessage('Debug completed! Check browser console for detailed results.', 'success');
-        console.log('🔍 LinkedIn Debug Results:', response.debugData);
-      } else {
-        this.showMessage(response?.error || 'Debug failed', 'error');
-      }
-    } catch (error) {
-      console.error('❌ LinkedIn debug error:', error);
-      this.showMessage('Error running debug: ' + error.message, 'error');
-    }
-  }
+  // Debug functionality removed - use hybrid comparison test instead
 
   showLinkedInExtractionError(errorMessage) {
     let message = 'LinkedIn extraction failed: ';
