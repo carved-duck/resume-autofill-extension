@@ -15,27 +15,74 @@ export function enhanceLinkedInData(originalData) {
       if (exp.company && exp.company.length > 100) {
         console.log(`🔧 Fixing company name for experience ${index}: "${exp.company.substring(0, 50)}..."`);
         
-        // Try to extract real company name from page content
+        // Try to find company name contextually around this job's date range
+        const dateRange = exp.date_range || '';
         const pageText = document.body.innerText;
+        
+        // Look for company patterns near this job's date range
+        let contextualCompany = null;
+        
+        if (dateRange) {
+          // Extract key date parts to search around
+          const dateMatches = dateRange.match(/\w+ \d{4}/g); // e.g., ["Jun 2023", "Mar 2025"]
+          if (dateMatches && dateMatches.length > 0) {
+            const startDate = dateMatches[0];
+            
+            // Look for text sections containing this date range
+            const pageLines = pageText.split('\n');
+            for (let i = 0; i < pageLines.length; i++) {
+              const line = pageLines[i];
+              if (line.includes(startDate) || line.includes(dateRange.substring(0, 15))) {
+                // Look in surrounding lines for company patterns
+                const contextLines = pageLines.slice(Math.max(0, i-3), i+4);
+                const contextText = contextLines.join(' ');
+                
+                // Check for specific companies in this context
+                const companyPatterns = [
+                  { pattern: /Anchor Studio Corporation/gi, name: 'Anchor Studio Corporation' },
+                  { pattern: /AEON Corporation/gi, name: 'AEON Corporation' },
+                  { pattern: /Gaba Corporation/gi, name: 'Gaba Corporation' },
+                  { pattern: /Embassy Suites/gi, name: 'Embassy Suites' }
+                ];
+                
+                for (const { pattern, name } of companyPatterns) {
+                  if (pattern.test(contextText)) {
+                    contextualCompany = name;
+                    console.log(`🎯 Found contextual company "${name}" near date "${startDate}"`);
+                    break;
+                  }
+                }
+                
+                if (contextualCompany) break;
+              }
+            }
+          }
+        }
+        
+        if (contextualCompany) {
+          console.log(`✅ Fixed company: "${exp.company.substring(0, 30)}..." → "${contextualCompany}"`);
+          return { ...exp, company: contextualCompany };
+        }
+        
+        // Fallback: try global patterns
         const companyPatterns = [
-          /AEON Corporation/gi,
           /Anchor Studio Corporation/gi,
+          /AEON Corporation/gi,
           /Gaba Corporation/gi,
           /Embassy Suites/gi,
-          /([A-Z][a-z]+ (?:Corporation|Company|Inc|LLC|Ltd))/g,
-          /([A-Z][a-z]+ [A-Z][a-z]+)(?=\s*·\s*(?:Permanent|Part-time|Full-time|Contract))/g
+          /([A-Z][a-z]+ (?:Corporation|Company|Inc|LLC|Ltd))/g
         ];
         
         for (const pattern of companyPatterns) {
           const matches = pageText.match(pattern);
           if (matches && matches[0]) {
             const fixedCompany = matches[0];
-            console.log(`✅ Fixed company: "${exp.company.substring(0, 30)}..." → "${fixedCompany}"`);
+            console.log(`✅ Fixed company (fallback): "${exp.company.substring(0, 30)}..." → "${fixedCompany}"`);
             return { ...exp, company: fixedCompany };
           }
         }
         
-        // Fallback: try to extract from description
+        // Final fallback: try to extract from description
         const descWords = exp.company.split(' ').slice(0, 3).join(' ');
         if (descWords.length < exp.company.length) {
           console.log(`🔧 Using description fallback: "${descWords}"`);
