@@ -67,11 +67,7 @@ class PopupController {
       testHybridBtn.addEventListener('click', () => this.testHybridExtraction());
     }
     
-    // LinkedIn debug button
-    const linkedinDebugBtn = document.getElementById('linkedinDebugBtn');
-    if (linkedinDebugBtn) {
-      linkedinDebugBtn.addEventListener('click', () => this.debugLinkedInPage());
-    }
+    // LinkedIn debug functionality removed - use comparison test instead
 
     // File upload button - manual fallback
     const uploadBtn = document.getElementById('uploadBtn');
