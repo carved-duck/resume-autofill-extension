@@ -1,6 +1,8 @@
 // Background script for storage debugging and cross-tab communication
 console.log('🔄 Background script loaded');
 
+// Background script for Resume Auto-Fill Extension
+
 // Listen for storage changes
 chrome.storage.onChanged.addListener((changes, namespace) => {
   console.log('📦 Storage changed:', changes, 'in namespace:', namespace);

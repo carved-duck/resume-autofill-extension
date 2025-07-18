@@ -21,7 +21,8 @@
     "https://*.lever.co/*",
     "https://*.wantedly.com/*",
     "https://*.gaijinpot.com/*",
-    "http://localhost:*/*"
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*"
   ],
 
   "action": {
