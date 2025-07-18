@@ -905,12 +905,27 @@
         </div>
       </div>
 
+      <!-- Hybrid Mode Toggle -->
+      <div class="hybrid-mode-section" style="margin-bottom: 15px; padding: 12px; background: rgba(255, 255, 255, 0.1); border-radius: 8px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 14px;">
+          <input type="checkbox" id="hybridModeToggle" style="margin-right: 8px; transform: scale(1.2);" checked>
+          🤖 Use Hybrid Mode (LLM + Traditional)
+        </label>
+        <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">
+          Enhanced extraction with local AI validation
+        </div>
+      </div>
+      
       <button id="linkedinDebugBtn" style="background: #ffc107; border-color: #ffc107; color: #212529; margin-bottom: 15px; width: 100%; font-size: 14px; padding: 12px;">
         🔍 Debug LinkedIn Page Structure
       </button>
       
       <button id="linkedinExtractBtn" class="linkedin-extract-btn">
         💼 Extract from LinkedIn Profile
+      </button>
+      
+      <button id="testHybridBtn" style="background: #17a2b8; border-color: #17a2b8; color: white; margin-top: 10px; width: 100%; font-size: 14px; padding: 12px;">
+        🧪 Test Hybrid vs Traditional
       </button>
     </div>
 

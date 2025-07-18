@@ -61,6 +61,12 @@ class PopupController {
       linkedinBtn.addEventListener('click', () => this.extractLinkedInData());
     }
     
+    // Test hybrid button
+    const testHybridBtn = document.getElementById('testHybridBtn');
+    if (testHybridBtn) {
+      testHybridBtn.addEventListener('click', () => this.testHybridExtraction());
+    }
+    
     // LinkedIn debug button
     const linkedinDebugBtn = document.getElementById('linkedinDebugBtn');
     if (linkedinDebugBtn) {
@@ -235,8 +241,13 @@ class PopupController {
 
       this.showMessage('Extracting LinkedIn profile data...', 'info');
 
+      // Check if hybrid mode is enabled
+      const hybridModeToggle = document.getElementById('hybridModeToggle');
+      const useHybridMode = hybridModeToggle ? hybridModeToggle.checked : false;
+
       const response = await chrome.tabs.sendMessage(tab.id, {
-        action: 'extractLinkedIn'
+        action: 'extractLinkedIn',
+        useHybridMode: useHybridMode
       });
 
       console.log('🎯 Full response from content script:', response);
@@ -298,6 +309,41 @@ class PopupController {
     } catch (error) {
       console.error('❌ Error during LinkedIn extraction:', error);
       this.showLinkedInExtractionError(error.message);
+    }
+  }
+
+  async testHybridExtraction() {
+    try {
+      this.showMessage('Testing hybrid vs traditional extraction...', 'info');
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+      if (!tab.url.includes('linkedin.com')) {
+        this.showMessage('Please navigate to a LinkedIn profile page', 'error');
+        return;
+      }
+
+      // Check if content script is ready
+      const readyStatus = await this.checkContentScriptReady(tab.id);
+      if (!readyStatus.ready) {
+        this.showContentScriptError(readyStatus);
+        return;
+      }
+
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        action: 'testHybridExtraction'
+      });
+
+      if (response && response.success) {
+        this.showMessage('✅ Hybrid test completed! Check console for detailed comparison.', 'success');
+        console.log('🧪 Extraction Comparison Results:', response);
+      } else {
+        throw new Error(response?.error || 'Test failed');
+      }
+
+    } catch (error) {
+      console.error('❌ Hybrid test failed:', error);
+      this.showMessage(`Hybrid test failed: ${error.message}`, 'error');
     }
   }
 

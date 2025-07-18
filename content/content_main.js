@@ -115,7 +115,11 @@ if (window.resumeAutoFillContentScriptLoaded) {
               break;
 
             case 'extractLinkedIn':
-              this.handleLinkedInExtraction(sendResponse);
+              this.handleLinkedInExtraction(message, sendResponse);
+              break;
+              
+            case 'testHybridExtraction':
+              this.handleHybridTest(sendResponse);
               break;
 
             case 'debugLinkedIn':
@@ -264,9 +268,10 @@ if (window.resumeAutoFillContentScriptLoaded) {
       }
     }
 
-    async handleLinkedInExtraction(sendResponse) {
+    async handleLinkedInExtraction(message, sendResponse) {
       try {
-        console.log('🔍 Starting LinkedIn profile extraction...');
+        const useHybridMode = message.useHybridMode || false;
+        console.log(`🔍 Starting LinkedIn profile extraction... (Hybrid: ${useHybridMode})`);
 
         // Check if we're actually on LinkedIn
         if (!window.location.hostname.includes('linkedin.com')) {
@@ -278,7 +283,7 @@ if (window.resumeAutoFillContentScriptLoaded) {
           throw new Error('Content script not fully initialized: ' + (this.initializationError || 'Unknown error'));
         }
 
-        const extractedData = await this.extractLinkedInProfile();
+        const extractedData = await this.extractLinkedInProfile(useHybridMode);
         console.log('🔍 Raw extracted data:', JSON.stringify(extractedData, null, 2));
 
         const normalizedData = this.normalizeProfileData(extractedData);
@@ -359,10 +364,60 @@ if (window.resumeAutoFillContentScriptLoaded) {
       }
     }
 
-    async extractLinkedInProfile() {
-      console.log('🔍 Starting LinkedIn profile extraction...');
+    async handleHybridTest(sendResponse) {
+      try {
+        console.log('🧪 Starting hybrid vs traditional comparison test...');
+        
+        // Check if we're actually on LinkedIn
+        if (!window.location.hostname.includes('linkedin.com')) {
+          throw new Error('Not on LinkedIn page');
+        }
 
-      // Load LinkedIn extractor if not available
+        // Load hybrid extractor
+        await this.loadHybridLinkedInExtractor();
+
+        if (!window.HybridLinkedInExtractor) {
+          throw new Error('Hybrid extractor not available');
+        }
+
+        // Run the comparison test
+        const hybridExtractor = new window.HybridLinkedInExtractor();
+        const comparison = await hybridExtractor.debugCompareExtractions();
+        
+        console.log('✅ Hybrid comparison test completed');
+        sendResponse({ 
+          success: true, 
+          comparison: comparison,
+          message: 'Check console for detailed comparison results'
+        });
+        
+      } catch (error) {
+        console.error('❌ Hybrid test failed:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+    }
+
+    async extractLinkedInProfile(useHybridMode = false) {
+      console.log(`🔍 Starting LinkedIn profile extraction... (Hybrid: ${useHybridMode})`);
+
+      if (useHybridMode) {
+        // Load hybrid extractor
+        await this.loadHybridLinkedInExtractor();
+        
+        if (window.HybridLinkedInExtractor) {
+          try {
+            const hybridExtractor = new window.HybridLinkedInExtractor();
+            const profileData = await hybridExtractor.extractProfileData();
+            console.log('✅ Hybrid LinkedIn profile extracted:', profileData);
+            return profileData;
+          } catch (error) {
+            console.warn('⚠️ Hybrid extraction failed, falling back to traditional:', error);
+            // Fall through to traditional extraction
+          }
+        }
+      }
+
+      // Traditional extraction (fallback or when hybrid not requested)
       await this.loadLinkedInExtractor();
 
       if (!window.LinkedInExtractor) {
@@ -372,12 +427,46 @@ if (window.resumeAutoFillContentScriptLoaded) {
       try {
         const extractor = new window.LinkedInExtractor();
         const profileData = await extractor.extractProfileData();
-        console.log('✅ LinkedIn profile extracted:', profileData);
+        console.log('✅ Traditional LinkedIn profile extracted:', profileData);
         return profileData;
       } catch (error) {
         console.error('❌ LinkedIn extraction error:', error);
         throw error;
       }
+    }
+
+    async loadHybridLinkedInExtractor() {
+      return new Promise((resolve, reject) => {
+        if (window.HybridLinkedInExtractor) {
+          resolve();
+          return;
+        }
+
+        console.log('📦 Loading hybrid LinkedIn extractor...');
+        
+        // Load Ollama client first
+        const ollamaScript = document.createElement('script');
+        ollamaScript.type = 'module';
+        ollamaScript.textContent = `
+          import { OllamaClient } from '${chrome.runtime.getURL('js/modules/ollamaClient.js')}';
+          import { HybridLinkedInExtractor } from '${chrome.runtime.getURL('js/modules/hybridLinkedInExtractor.js')}';
+          window.OllamaClient = OllamaClient;
+          window.HybridLinkedInExtractor = HybridLinkedInExtractor;
+          console.log('✅ Hybrid extractor modules loaded');
+        `;
+        
+        ollamaScript.onload = () => {
+          console.log('✅ Hybrid LinkedIn extractor loaded successfully');
+          resolve();
+        };
+        
+        ollamaScript.onerror = (error) => {
+          console.error('❌ Failed to load hybrid LinkedIn extractor:', error);
+          reject(error);
+        };
+        
+        document.head.appendChild(ollamaScript);
+      });
     }
 
     async loadLinkedInExtractor() {
