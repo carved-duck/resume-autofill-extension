@@ -4,6 +4,7 @@ import { StorageManager } from './js/modules/storageManager.js';
 import { UiManager } from './js/modules/uiManager.js';
 import { FormFiller } from './js/modules/formFiller.js';
 import { FileHandler } from './js/modules/fileHandler.js';
+import { SafeDOM, SecureFetch } from './js/modules/securityUtils.js';
 
 class PopupController {
   constructor() {
@@ -30,6 +31,9 @@ class PopupController {
 
       // Load any existing resume data
       await this.loadExistingData();
+      
+      // Check LLM status
+      await this.checkLLMStatus();
 
       this.isInitialized = true;
       console.log('✅ Popup controller initialized successfully');
@@ -484,6 +488,37 @@ class PopupController {
     } catch (error) {
       console.error('❌ Error clearing data:', error);
       this.showMessage('Error clearing data: ' + error.message, 'error');
+    }
+  }
+
+  async checkLLMStatus() {
+    try {
+      console.log('🔍 Checking LLM status...');
+      
+      const status = await SecureFetch.json('http://localhost:3000/api/llm/status', {
+        timeout: 5000
+      });
+      
+      const statusElement = SafeDOM.querySelector('#llm-status');
+      if (!statusElement) return;
+      
+      if (status.available) {
+        SafeDOM.setTextContent(statusElement, `✅ LLM Ready: ${status.model}`);
+        statusElement.style.color = '#28a745';
+        console.log('✅ LLM is available:', status.model);
+      } else {
+        SafeDOM.setTextContent(statusElement, '⚠️ LLM not available (using rule-based fallback)');
+        statusElement.style.color = '#ffc107';
+        console.log('⚠️ LLM not available:', status.message);
+      }
+      
+    } catch (error) {
+      console.log('⚠️ Cannot reach backend server:', error.message);
+      const statusElement = SafeDOM.querySelector('#llm-status');
+      if (statusElement) {
+        SafeDOM.setTextContent(statusElement, '❌ Backend server not running');
+        statusElement.style.color = '#dc3545';
+      }
     }
   }
 

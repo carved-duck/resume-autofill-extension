@@ -1,4 +1,20 @@
 // LinkedIn Profile Data Extractor
+
+// Initialize logger for reduced console output
+const logger = window.logger || {
+  debug: () => {}, // Silent by default
+  info: (msg, data) => console.log(`ℹ️ LinkedIn: ${msg}`, data ? data : ''),
+  warn: (msg, data) => console.warn(`⚠️ LinkedIn: ${msg}`, data ? data : ''),
+  error: (msg, data) => console.error(`❌ LinkedIn: ${msg}`, data ? data : ''),
+  success: (msg, data) => console.log(`✅ LinkedIn: ${msg}`, data ? data : '')
+};
+
+// Set debug mode - change to true for detailed logging
+const DEBUG_MODE = false;
+if (DEBUG_MODE) {
+  logger.debug = (msg, data) => console.log(`🔍 LinkedIn: ${msg}`, data ? data : '');
+}
+
 export class LinkedInExtractor {
   constructor() {
     this.isLinkedInPage = this.checkIfLinkedInPage();
@@ -15,7 +31,7 @@ export class LinkedInExtractor {
       throw new Error('Not on LinkedIn page');
     }
 
-    console.log('🔍 Extracting LinkedIn profile data step by step...');
+    logger.info('Extracting LinkedIn profile data...');
 
     try {
       // Step 1: Scroll to load all sections
@@ -56,29 +72,26 @@ export class LinkedInExtractor {
       // Validate and ensure data quality
       const validatedProfileData = this.validateAndCleanProfileData(profileData);
 
-      // Log the final profile data for debugging
-      console.log('FINAL PROFILE DATA:', JSON.stringify(validatedProfileData, null, 2));
-
-      console.log('✅ LinkedIn profile data extracted successfully');
-      console.log('📊 Extraction Summary:', {
-        personal_info: Object.keys(validatedProfileData.personal_info || {}).length,
-        summary: validatedProfileData.summary?.length || 0,
-        work_experience: validatedProfileData.work_experience?.length || 0,
-        education: validatedProfileData.education?.length || 0,
-        skills: validatedProfileData.skills?.length || 0,
-        certifications: validatedProfileData.certifications?.length || 0
+      // Log summary of extracted data
+      logger.success('LinkedIn profile data extracted successfully', {
+        personal_info: Object.keys(validatedProfileData.personal_info || {}).length + ' fields',
+        summary: validatedProfileData.summary?.length + ' chars' || 'none',
+        work_experience: validatedProfileData.work_experience?.length + ' jobs' || 'none',
+        education: validatedProfileData.education?.length + ' entries' || 'none',
+        skills: validatedProfileData.skills?.length + ' skills' || 'none',
+        certifications: validatedProfileData.certifications?.length + ' certs' || 'none'
       });
 
       return validatedProfileData;
 
     } catch (error) {
-      console.error('❌ Failed to extract LinkedIn data:', error);
+      logger.error('Failed to extract LinkedIn data', error);
       throw error;
     }
   }
 
   async extractPersonalInfo() {
-    console.log('👤 Extracting personal info...');
+    logger.debug('Extracting personal info...');
 
     const personalInfo = {};
     
@@ -106,7 +119,7 @@ export class LinkedInExtractor {
         // Use CSS selectors only (remove XPath to avoid issues)
         nameEl = document.querySelector(selector);
       } catch (error) {
-        console.log(`⚠️ Failed to evaluate selector "${selector}":`, error.message);
+        logger.debug(`Failed name selector: ${selector}`);
         continue;
       }
 
@@ -127,7 +140,7 @@ export class LinkedInExtractor {
           } else if (nameParts.length === 1) {
             personalInfo.first_name = nameParts[0];
           }
-          console.log(`✅ Found name with selector "${selector}": ${fullName}`);
+          logger.debug('Found name', fullName);
           break;
         }
       }
@@ -153,7 +166,7 @@ export class LinkedInExtractor {
       try {
         headlineEl = document.querySelector(selector);
       } catch (error) {
-        console.log(`⚠️ Failed to evaluate headline selector "${selector}":`, error.message);
+        logger.debug(`Failed headline selector: ${selector}`);
         continue;
       }
 
@@ -164,7 +177,7 @@ export class LinkedInExtractor {
             !headline.includes(personalInfo.full_name || '') &&
             headline !== personalInfo.full_name) {
           personalInfo.headline = headline;
-          console.log(`✅ Found headline with selector "${selector}": ${headline.substring(0, 50)}...`);
+          logger.debug('Found headline', headline.substring(0, 50) + '...');
           break;
         }
       }
@@ -190,7 +203,7 @@ export class LinkedInExtractor {
       try {
         locationEl = document.querySelector(selector);
       } catch (error) {
-        console.log(`⚠️ Failed to evaluate location selector "${selector}":`, error.message);
+        logger.debug(`Failed location selector: ${selector}`);
         continue;
       }
 
@@ -203,7 +216,7 @@ export class LinkedInExtractor {
             // Check if it looks like a location (contains common location words or patterns)
             (/\b(city|state|country|,|\s-\s)/i.test(location) || location.split(' ').length <= 4)) {
           personalInfo.location = location;
-          console.log(`✅ Found location with selector "${selector}": ${location}`);
+          logger.debug('Found location', location);
           break;
         }
       }
@@ -212,15 +225,15 @@ export class LinkedInExtractor {
     // LinkedIn URL
     personalInfo.linkedin = window.location?.href?.split('?')[0] || '';
 
-    console.log('✅ Extracted personal info from LinkedIn');
+    logger.debug('Personal info extraction completed');
     return personalInfo;
   }
 
   async extractContactInfo(personalInfo) {
-    console.log('📞 Extracting contact info...');
+    logger.debug('Extracting contact info...');
 
     if (!personalInfo) {
-      console.log('⚠️ No personalInfo object provided, creating new one');
+      logger.warn('No personalInfo object provided, creating new one');
       personalInfo = {};
     }
 
@@ -239,7 +252,7 @@ export class LinkedInExtractor {
       for (const selector of contactSelectors) {
         contactLink = document.querySelector(selector);
         if (contactLink) {
-          console.log(`✅ Found contact info link: ${selector}`);
+          logger.debug('Found contact info link');
           break;
         }
       }
@@ -262,7 +275,7 @@ export class LinkedInExtractor {
           await this.wait(200);
         }
         if (!modal || modal.offsetParent === null) {
-          console.log('⚠️ Contact info modal not found or not visible.');
+          logger.warn('Contact info modal not found or not visible.');
           return personalInfo; // Return the object instead of undefined
         }
 
@@ -282,10 +295,10 @@ export class LinkedInExtractor {
           const email = emailElement.href.replace('mailto:', '');
           personalInfo.email = email;
           foundEmail = true;
-          console.log(`✅ Found email: ${email}`);
+          logger.debug('Found email', email);
         }
         if (!foundEmail) {
-          console.log('⚠️ Email not found in modal. Modal content HTML:', modalContent.innerHTML?.slice(0, 1000));
+          logger.debug('Email not found in modal');
         }
 
         // Extract website
@@ -299,10 +312,10 @@ export class LinkedInExtractor {
           const website = websiteElement.href;
           personalInfo.website = website;
           foundWebsite = true;
-          console.log(`✅ Found website: ${website}`);
+          logger.debug('Found website', website);
         }
         if (!foundWebsite) {
-          console.log('⚠️ Website not found in modal. Modal content HTML:', modalContent.innerHTML?.slice(0, 1000));
+          logger.debug('Website not found in modal');
         }
 
         // Extract phone (if present)
@@ -312,10 +325,10 @@ export class LinkedInExtractor {
           const phone = phoneElement.textContent?.trim() || '';
           personalInfo.phone = phone;
           foundPhone = true;
-          console.log(`✅ Found phone: ${phone}`);
+          logger.debug('Found phone', phone);
         }
         if (!foundPhone) {
-          console.log('⚠️ Phone not found in modal. Modal content HTML:', modalContent.innerHTML?.slice(0, 1000));
+          logger.debug('Phone not found in modal');
         }
 
         // Close contact info modal if open
@@ -329,7 +342,7 @@ export class LinkedInExtractor {
           }
         }
       } else {
-        console.log('⚠️ Contact info link not found');
+        logger.warn('Contact info link not found');
       }
 
     } catch (error) {
@@ -340,17 +353,17 @@ export class LinkedInExtractor {
   }
 
   async extractSummary() {
-    console.log('📝 Extracting summary/about...');
+    logger.debug('Extracting summary/about...');
 
     try {
       // First, look for the About section
       const aboutSection = document.querySelector('#about');
       if (!aboutSection) {
-        console.log('⚠️ About section not found');
+        logger.debug('About section not found');
         return '';
       }
 
-      console.log('✅ About section found, scrolling to it...');
+      logger.debug('About section found, scrolling to it...');
       
       // Scroll to the about section to ensure it's loaded
       aboutSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -381,14 +394,14 @@ export class LinkedInExtractor {
       for (const selector of aboutSelectors) {
         const aboutContent = document.querySelector(selector);
         if (aboutContent) {
-          console.log(`✅ Found about content with selector: ${selector}`);
-          console.log('📍 About content HTML preview:', aboutContent.innerHTML.substring(0, 300) + '...');
+          logger.debug('Found about content');
+          logger.debug('About content preview', aboutContent.innerHTML.substring(0, 100) + '...');
           
           // Skip if this looks like a header container (has h2 but minimal text)
           const hasHeader = aboutContent.querySelector('h2, h3, h4');
           const textContent = aboutContent.textContent?.trim() || '';
           if (hasHeader && textContent.length < 100) {
-            console.log('⚠️ Skipping header container, looking for actual content...');
+            logger.debug('Skipping header container, looking for actual content...');
             continue;
           }
           
@@ -396,7 +409,7 @@ export class LinkedInExtractor {
           const seeMoreButton = aboutContent.querySelector('button[aria-label*="see more"], .inline-show-more-text__button, button[aria-expanded="false"]');
           if (seeMoreButton) {
             try {
-              console.log('🔍 Found "see more" button, clicking...');
+              logger.debug('Found see more button, clicking...');
               seeMoreButton.click();
               await this.wait(500);
               console.log('✅ Expanded about section');
@@ -472,7 +485,7 @@ export class LinkedInExtractor {
   }
 
   async extractSkills() {
-    console.log('🛠️ Extracting skills...');
+    logger.debug('Extracting skills...');
 
     const skills = [];
 
@@ -480,7 +493,7 @@ export class LinkedInExtractor {
       // Look for skills section
       const skillsSection = document.querySelector('#skills');
       if (!skillsSection) {
-        console.log('⚠️ Skills section not found');
+        logger.debug('Skills section not found');
         return skills;
       }
 
@@ -506,7 +519,7 @@ export class LinkedInExtractor {
           const expandButton = document.querySelector(selector);
 
           if (expandButton && expandButton.offsetParent !== null) {
-            console.log(`🎯 Found skills expand button: ${selector}`);
+            logger.debug('Found skills expand button');
             try {
               expandButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
               await this.wait(500);
@@ -519,12 +532,12 @@ export class LinkedInExtractor {
             }
           }
         } catch (e) {
-          console.log(`⚠️ Failed to expand skills with selector ${selector}:`, e.message);
+          logger.debug(`Failed to expand skills: ${selector}`);
         }
       }
 
       if (!foundExpandButton) {
-        console.log('⚠️ No skills expand button found, proceeding with visible skills');
+        logger.debug('No skills expand button found, proceeding with visible skills');
       }
 
       // Multiple strategies for extracting skills
@@ -548,7 +561,7 @@ export class LinkedInExtractor {
         const skillElements = document.querySelectorAll(selector);
         
         if (skillElements.length > 0) {
-          console.log(`🔍 Found ${skillElements.length} skill elements with selector: ${selector}`);
+          logger.debug(`Found ${skillElements.length} skill elements`);
           
           // Limit to avoid processing too many elements
           const elementsToProcess = Math.min(skillElements.length, 50);
@@ -561,14 +574,14 @@ export class LinkedInExtractor {
               // Validate skill text
               if (this.isValidSkill(skillText)) {
                 extractedSkills.add(skillText);
-                console.log(`✅ Found skill: ${skillText}`);
+                logger.debug('Found skill', skillText);
               }
             }
           }
           
           // If we found skills with this selector, log and continue to get more
           if (extractedSkills.size > 0) {
-            console.log(`✅ Extracted ${extractedSkills.size} skills so far with selector: ${selector}`);
+            logger.debug(`Extracted ${extractedSkills.size} skills so far`);
           }
         }
       }
@@ -576,7 +589,7 @@ export class LinkedInExtractor {
       // Convert Set back to Array
       skills.push(...Array.from(extractedSkills));
 
-      console.log(`✅ Extracted ${skills.length} total skills`);
+      logger.info(`Extracted ${skills.length} skills`);
 
     } catch (error) {
       console.error('❌ Failed to extract skills:', error);
@@ -608,7 +621,7 @@ export class LinkedInExtractor {
   }
 
   async extractCertifications() {
-    console.log('🏆 Extracting certifications...');
+    logger.debug('Extracting certifications...');
 
     const certifications = [];
 
@@ -682,7 +695,7 @@ export class LinkedInExtractor {
   }
 
   async extractExperienceBasic() {
-    console.log('💼 Extracting experience from LinkedIn profile...');
+    logger.debug('Extracting experience from LinkedIn profile...');
 
     const experiences = [];
 
@@ -786,7 +799,7 @@ export class LinkedInExtractor {
         }
       }
       
-      console.log(`📊 Collection results: ${potentialTitles.length} titles, ${potentialCompanies.length} companies, ${dateRanges.length} dates`);
+      logger.debug(`Collection results: ${potentialTitles.length} titles, ${potentialCompanies.length} companies, ${dateRanges.length} dates`);
       
       // Pass 2: Match titles with companies based on proximity
       for (const title of potentialTitles) {
@@ -855,7 +868,7 @@ export class LinkedInExtractor {
   }
 
   async extractStructuredExperience() {
-    console.log('🏗️ Attempting structured experience extraction...');
+    logger.debug('Attempting structured experience extraction...');
 
     const experiences = [];
 
@@ -890,11 +903,20 @@ export class LinkedInExtractor {
           
           for (const expEl of expElements) {
             try {
-              // Try multiple extraction strategies for each element
-              const extractedExp = await this.extractExperienceFromElement(expEl);
-              if (extractedExp) {
-                experiences.push(extractedExp);
-                console.log(`✅ Structured extraction: "${extractedExp.title}" at "${extractedExp.company}"`);
+              // Check if this element contains multiple positions under one company
+              const nestedPositions = await this.extractNestedPositions(expEl);
+              
+              if (nestedPositions && nestedPositions.length > 1) {
+                // Found multiple positions under one company
+                experiences.push(...nestedPositions);
+                console.log(`✅ Extracted ${nestedPositions.length} nested positions under company: "${nestedPositions[0].company}"`);
+              } else {
+                // Try regular single experience extraction
+                const extractedExp = await this.extractExperienceFromElement(expEl);
+                if (extractedExp) {
+                  experiences.push(extractedExp);
+                  console.log(`✅ Structured extraction: "${extractedExp.title}" at "${extractedExp.company}"`);
+                }
               }
             } catch (e) {
               console.log('⚠️ Failed to parse experience element:', e.message);
@@ -1171,7 +1193,7 @@ export class LinkedInExtractor {
   }
 
   async clickShowAllExperiences() {
-    console.log('🔍 Looking for "Show all experiences" button...');
+    logger.debug('Looking for show all experiences button...');
     
     try {
       const showAllSelectors = [
@@ -1187,7 +1209,7 @@ export class LinkedInExtractor {
       for (const selector of showAllSelectors) {
         const button = document.querySelector(selector);
         if (button && button.offsetParent !== null) {
-          console.log(`✅ Found show all button with selector: ${selector}`);
+          logger.debug('Found show all button');
           try {
             button.scrollIntoView({ behavior: 'smooth', block: 'center' });
             await this.wait(500);
@@ -1209,17 +1231,17 @@ export class LinkedInExtractor {
               // Check if we're on the detailed experience page
               if (window.location.href !== currentUrl && 
                   window.location.href.includes('/detail/experience')) {
-                console.log('✅ Successfully navigated to detailed experience page');
+                logger.debug('Successfully navigated to detailed experience page');
                 return await this.handleExperienceDetailPage(currentPageData);
               } else {
-                console.log('⚠️ Navigation failed, staying on current page');
+                logger.debug('Navigation failed, staying on current page');
                 return true;
               }
             } else {
               // Standard button click (expands content on same page)
               button.click();
               await this.wait(2000); // Wait for content to load
-              console.log('✅ Clicked show all experiences button (expanded content)');
+              logger.debug('Clicked show all experiences button (expanded content)');
               return true;
             }
           } catch (clickError) {
@@ -1229,7 +1251,7 @@ export class LinkedInExtractor {
         }
       }
       
-      console.log('⚠️ No "Show all experiences" button found');
+      logger.debug('No show all experiences button found');
       return false;
     } catch (error) {
       console.error('❌ Failed to click show all experiences:', error);
@@ -1239,7 +1261,7 @@ export class LinkedInExtractor {
 
   // Helper method to get basic experience data before navigation
   getBasicExperienceData() {
-    console.log('📊 Collecting basic experience data before navigation...');
+    logger.debug('Collecting basic experience data before navigation...');
     
     const basicData = {
       profileUrl: window.location.href,
@@ -1265,7 +1287,7 @@ export class LinkedInExtractor {
         }
       }
       
-      console.log(`📊 Collected ${basicData.experiences.length} basic experience entries`);
+      logger.debug(`Collected ${basicData.experiences.length} basic experience entries`);
     } catch (error) {
       console.error('❌ Failed to collect basic experience data:', error);
     }
@@ -1275,7 +1297,7 @@ export class LinkedInExtractor {
 
   // Handle extraction from detailed experience page
   async handleExperienceDetailPage(basicData) {
-    console.log('📄 Extracting detailed experience data from dedicated page...');
+    logger.debug('Extracting detailed experience data from dedicated page...');
     
     try {
       // Wait for the detailed page to fully load
@@ -1295,15 +1317,26 @@ export class LinkedInExtractor {
         const expElements = document.querySelectorAll(selector);
         
         if (expElements.length > 0) {
-          console.log(`✅ Found ${expElements.length} detailed experience elements with selector: ${selector}`);
+          logger.debug(`Found ${expElements.length} detailed experience elements`);
           
           for (const expEl of expElements) {
             try {
-              const extractedExp = await this.extractExperienceFromElement(expEl);
-              if (extractedExp) {
-                extractedExp.source = 'detail_page';
-                detailedExperiences.push(extractedExp);
-                console.log(`✅ Detailed extraction: "${extractedExp.title}" at "${extractedExp.company}"`);
+              // Check if this element contains multiple positions under one company
+              const nestedPositions = await this.extractNestedPositions(expEl);
+              
+              if (nestedPositions && nestedPositions.length > 1) {
+                // Found multiple positions under one company
+                nestedPositions.forEach(pos => pos.source = 'detail_page');
+                detailedExperiences.push(...nestedPositions);
+                console.log(`✅ Detailed extraction of ${nestedPositions.length} nested positions under: "${nestedPositions[0].company}"`);
+              } else {
+                // Try regular single experience extraction
+                const extractedExp = await this.extractExperienceFromElement(expEl);
+                if (extractedExp) {
+                  extractedExp.source = 'detail_page';
+                  detailedExperiences.push(extractedExp);
+                  console.log(`✅ Detailed extraction: "${extractedExp.title}" at "${extractedExp.company}"`);
+                }
               }
             } catch (e) {
               console.log('⚠️ Failed to parse detailed experience element:', e.message);
@@ -1345,8 +1378,135 @@ export class LinkedInExtractor {
     }
   }
 
+  async extractNestedPositions(element) {
+    console.log('🔍 Checking for nested positions under one company...');
+    
+    try {
+      // Look for patterns that indicate multiple positions under one company
+      const nestedSelectors = [
+        '.pvs-entity__sub-components .pvs-list__item', // Nested position items
+        '.experience-group__positions .experience-item', // Legacy grouped positions
+        '[data-view-name="profile-component-entity"] .pvs-list__item', // Entity sub-items
+        '.artdeco-entity-lockup .pvs-list__item', // Lockup sub-items
+        'ul li', // Generic nested list items within experience element
+        '.pvs-list > li' // Direct list children
+      ];
+      
+      let nestedElements = [];
+      
+      // Try to find nested position elements
+      for (const selector of nestedSelectors) {
+        const found = element.querySelectorAll(selector);
+        if (found.length > 1) { // Only consider if we find multiple items
+          nestedElements = Array.from(found);
+          logger.debug(`Found ${found.length} nested elements`);
+          break;
+        }
+      }
+      
+      if (nestedElements.length < 2) {
+        console.log('🔍 No nested positions detected, checking for company header...');
+        
+        // Alternative approach: Look for company name at top level and positions below
+        const companyElement = element.querySelector('h3, h4, .pvs-entity__path-node, .artdeco-entity-lockup__title');
+        const positionElements = element.querySelectorAll('.pvs-entity__path-node:not(:first-child), h4:not(:first-child)');
+        
+        if (companyElement && positionElements.length > 0) {
+          // Found company header with multiple positions below
+          const companyName = this.deduplicateText(companyElement.textContent?.trim() || '');
+          if (this.isValidCompanyName(companyName)) {
+            console.log(`✅ Found company header "${companyName}" with ${positionElements.length} positions`);
+            
+            const positions = [];
+            for (const posEl of positionElements) {
+              const position = await this.extractExperienceFromElement(posEl);
+              if (position) {
+                position.company = companyName; // Override with main company name
+                positions.push(position);
+              }
+            }
+            
+            if (positions.length > 1) {
+              return positions;
+            }
+          }
+        }
+        
+        return null; // No nested positions found
+      }
+      
+      console.log(`🔍 Processing ${nestedElements.length} nested position elements...`);
+      
+      // Extract company name from the parent element (should be common to all positions)
+      let parentCompany = '';
+      const parentCompanySelectors = [
+        'h3', 'h4', // Main headers
+        '.pvs-entity__path-node:first-child', // First path node is usually company
+        '.artdeco-entity-lockup__title', // Entity title
+        '.experience-company-name' // Direct company name
+      ];
+      
+      for (const selector of parentCompanySelectors) {
+        const companyEl = element.querySelector(selector);
+        if (companyEl) {
+          const companyText = this.deduplicateText(companyEl.textContent?.trim() || '');
+          if (this.isValidCompanyName(companyText)) {
+            parentCompany = companyText;
+            console.log(`✅ Found parent company: "${parentCompany}"`);
+            break;
+          }
+        }
+      }
+      
+      // If no company found at parent level, try to extract from metadata in text
+      if (!parentCompany) {
+        const elementText = element.textContent || '';
+        const lines = elementText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+        
+        for (const line of lines) {
+          const extractedCompany = this.extractCompanyFromMetadata(line);
+          if (extractedCompany) {
+            parentCompany = extractedCompany;
+            console.log(`✅ Found parent company from metadata: "${parentCompany}"`);
+            break;
+          }
+        }
+      }
+      
+      // Extract each nested position
+      const positions = [];
+      for (let i = 0; i < nestedElements.length; i++) {
+        const nestedEl = nestedElements[i];
+        console.log(`🔍 Processing nested position ${i + 1}/${nestedElements.length}...`);
+        
+        const position = await this.extractExperienceFromElement(nestedEl);
+        if (position) {
+          // Use parent company if the nested extraction didn't find a good company
+          if (parentCompany && (!position.company || position.company.length > 100)) {
+            position.company = parentCompany;
+            console.log(`🔄 Used parent company for position: "${position.title}" at "${parentCompany}"`);
+          }
+          
+          positions.push(position);
+        }
+      }
+      
+      if (positions.length > 1) {
+        console.log(`✅ Successfully extracted ${positions.length} nested positions`);
+        return positions;
+      } else {
+        console.log('⚠️ Could not extract multiple valid positions from nested elements');
+        return null;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error extracting nested positions:', error);
+      return null;
+    }
+  }
+
   async extractExperienceFromElement(element) {
-    console.log('🔍 Extracting experience from element...');
+    logger.debug('Extracting experience from element...');
     
     // Strategy 1: Look for standard LinkedIn structure
     let title = null, company = null, dateRange = '', location = '';
@@ -1368,7 +1528,7 @@ export class LinkedInExtractor {
         const titleText = this.deduplicateText(titleEl.textContent?.trim() || '');
         if (this.isValidJobTitle(titleText)) {
           title = titleText;
-          console.log(`✅ Found title with selector "${sel}": ${title}`);
+          logger.debug('Found title', title);
           break;
         }
       }
@@ -1394,7 +1554,7 @@ export class LinkedInExtractor {
         const companyText = this.deduplicateText(companyEl.textContent?.trim() || '');
         if (this.isValidCompanyName(companyText)) {
           company = companyText;
-          console.log(`✅ Found company with selector "${sel}": ${company}`);
+          logger.debug('Found company', company);
           break;
         }
       }
@@ -1415,7 +1575,7 @@ export class LinkedInExtractor {
         const dateText = dateEl.textContent?.trim() || '';
         if (this.looksLikeDateRange(dateText)) {
           dateRange = dateText;
-          console.log(`✅ Found date range with selector "${sel}": ${dateRange}`);
+          logger.debug('Found date range', dateRange);
           break;
         }
       }
@@ -1441,7 +1601,7 @@ export class LinkedInExtractor {
         // Check if it's a "show more" expandable element
         const showMoreBtn = descEl.querySelector('.inline-show-more-text__button, .show-more-less-html__button');
         if (showMoreBtn) {
-          console.log('🔄 Found "show more" button, clicking to expand...');
+          logger.debug('Found show more button, clicking to expand...');
           try {
             showMoreBtn.click();
             // Wait a moment for content to expand
@@ -1480,7 +1640,7 @@ export class LinkedInExtractor {
               !descText.match(/^(full-time|part-time|contract|permanent)$/i)) {
             
             description = this.deduplicateText(descText);
-            console.log(`✅ Found description with selector "${sel}": ${description.substring(0, 100)}...`);
+            logger.debug('Found description', description.substring(0, 50) + '...');
             break;
           }
         }
@@ -1616,7 +1776,7 @@ export class LinkedInExtractor {
   }
 
   async extractEducationBasic() {
-    console.log('🎓 Extracting education info...');
+    logger.debug('Extracting education info...');
 
     const educations = [];
 
@@ -1633,7 +1793,7 @@ export class LinkedInExtractor {
       for (const selector of educationSelectors) {
         eduSection = document.querySelector(selector);
         if (eduSection) {
-          console.log(`✅ Found education section with selector: ${selector}`);
+          logger.debug('Found education section');
           break;
         }
       }
@@ -1765,7 +1925,7 @@ export class LinkedInExtractor {
   }
 
   async clickShowAllEducation() {
-    console.log('🔍 Looking for "Show all education" button...');
+    logger.debug('Looking for show all education button...');
     
     try {
       const showAllSelectors = [
@@ -1780,13 +1940,13 @@ export class LinkedInExtractor {
       for (const selector of showAllSelectors) {
         const button = document.querySelector(selector);
         if (button && button.offsetParent !== null) {
-          console.log(`✅ Found education show all button with selector: ${selector}`);
+          logger.debug('Found education show all button');
           try {
             button.scrollIntoView({ behavior: 'smooth', block: 'center' });
             await this.wait(500);
             button.click();
             await this.wait(2000);
-            console.log('✅ Clicked show all education button');
+            logger.debug('Clicked show all education button');
             return true;
           } catch (clickError) {
             console.log(`⚠️ Failed to click education button with selector ${selector}:`, clickError.message);
@@ -1794,7 +1954,7 @@ export class LinkedInExtractor {
         }
       }
       
-      console.log('⚠️ No "Show all education" button found');
+      logger.debug('No show all education button found');
       return false;
     } catch (error) {
       console.error('❌ Failed to click show all education:', error);
@@ -1824,7 +1984,7 @@ export class LinkedInExtractor {
         const eduElements = document.querySelectorAll(selector);
         
         if (eduElements.length > 0) {
-          console.log(`✅ Found ${eduElements.length} education elements with selector: ${selector}`);
+          logger.debug(`Found ${eduElements.length} education elements`);
           
           for (const eduEl of eduElements) {
             try {
@@ -1853,7 +2013,7 @@ export class LinkedInExtractor {
   }
 
   extractEducationFromElement(element) {
-    console.log('🔍 Extracting education from element...');
+    logger.debug('Extracting education from element...');
     
     let school = null, degree = null, dateRange = '', fieldOfStudy = '';
 
@@ -1872,7 +2032,7 @@ export class LinkedInExtractor {
         const schoolText = this.deduplicateText(schoolEl.textContent?.trim() || '');
         if (this.isValidSchoolName(schoolText)) {
           school = schoolText;
-          console.log(`✅ Found school with selector "${sel}": ${school}`);
+          logger.debug('Found school', school);
           break;
         }
       }
@@ -1894,7 +2054,7 @@ export class LinkedInExtractor {
         const degreeText = this.deduplicateText(degreeEl.textContent?.trim() || '');
         if (this.isValidDegreeName(degreeText)) {
           degree = degreeText;
-          console.log(`✅ Found degree with selector "${sel}": ${degree}`);
+          logger.debug('Found degree', degree);
           break;
         }
       }
@@ -2045,7 +2205,7 @@ export class LinkedInExtractor {
     
     commonStructures.forEach(selector => {
       const elements = document.querySelectorAll(selector);
-      console.log(`Found ${elements.length} elements with selector: ${selector}`);
+      logger.debug(`Found ${elements.length} elements`);
     });
   }
 
@@ -2422,8 +2582,8 @@ export class LinkedInExtractor {
   extractCompanyFromMetadata(text) {
     if (!text || typeof text !== 'string') return null;
     
-    console.log(`🔍 DEBUG: Extracting from metadata: "${text}"`);
-    console.log(`🔍 DEBUG: Text char codes:`, Array.from(text).map(c => `${c}(${c.charCodeAt(0)})`).join(' '));
+    logger.debug('Extracting from metadata', text);
+    // Character codes debug removed for cleaner logging
     
     // Handle patterns like "AEON Corporation · Permanent", "Gaba Corporation · Part-time", etc.
     // Note: LinkedIn might use different bullet characters
@@ -2531,7 +2691,7 @@ export class LinkedInExtractor {
       for (const selector of expContainers) {
         const container = document.querySelector(selector);
         if (container) {
-          console.log(`📦 Found experience container with selector "${selector}"`);
+          logger.debug('Found experience container');
           console.log(`   - Text preview: "${container.textContent?.substring(0, 150)}..."`);
           console.log(`   - Child elements: ${container.children.length}`);
           console.log(`   - Has .pvs-list__item--line-separated: ${container.querySelectorAll('.pvs-list__item--line-separated').length}`);
@@ -2541,7 +2701,7 @@ export class LinkedInExtractor {
       
       // Check for "Show all experiences" buttons
       const showAllButtons = document.querySelectorAll('button[aria-label*="Show"], a[href*="experience"]');
-      console.log(`🔍 Found ${showAllButtons.length} potential "Show all" buttons`);
+      logger.debug(`Found ${showAllButtons.length} potential show all buttons`);
       showAllButtons.forEach((btn, i) => {
         console.log(`   Button ${i}: "${btn.textContent?.trim()}" (${btn.tagName})`);
       });

@@ -1,13 +1,168 @@
 /**
- * Smart Data Enhancer
- * Applies intelligent fixes to extracted LinkedIn data
- * No complex loading dependencies - just pure data enhancement
+ * Smart Data Enhancer with LLM Backend Integration
+ * Applies intelligent fixes to extracted LinkedIn data using LLM when available
+ * Falls back to rule-based enhancements when LLM is not available
  */
 
-export function enhanceLinkedInData(originalData) {
+import { SecureFetch, RateLimiter } from './securityUtils.js';
+
+const BACKEND_URL = 'http://localhost:3000';
+const llmRateLimiter = new RateLimiter(5, 60000); // 5 requests per minute
+
+async function tryLLMEnhancement(originalData) {
+  const log = window.logger || console;
+  log.debug?.('Attempting LLM enhancement') || console.log('🔍 Attempting LLM enhancement via backend...');
+  
+  try {
+    // Check rate limit
+    if (!llmRateLimiter.isAllowed()) {
+      log.warn?.('LLM rate limit exceeded') || console.log('⚠️ LLM rate limit exceeded, falling back to rule-based');
+      return null;
+    }
+
+    // Check LLM status first
+    const statusData = await SecureFetch.json(`${BACKEND_URL}/api/llm/status`, {
+      timeout: 5000
+    });
+    
+    if (!statusData.available) {
+      log.warn?.('LLM not available', statusData.message) || console.log('⚠️ LLM not available:', statusData.message);
+      return null;
+    }
+    
+    log.debug?.(`LLM available: ${statusData.model}`) || console.log(`✅ LLM available: ${statusData.model}`);
+    
+    // Identify issues that need LLM enhancement
+    const issues = identifyDataIssues(originalData);
+    const totalIssues = Object.values(issues).reduce((sum, arr) => sum + arr.length, 0);
+    
+    if (totalIssues > 0) {
+      log.info?.(`Found ${totalIssues} data issues for enhancement`) || console.log(`🔧 Found ${totalIssues} issues for enhancement`);
+    }
+    
+    if (issues.companyIssues.length > 0) {
+      return await enhanceWithLLM(originalData, 'company_extraction');
+    }
+    
+    if (issues.descriptionIssues.length > 0) {
+      return await enhanceWithLLM(originalData, 'job_descriptions');
+    }
+    
+    // General enhancement if no specific issues
+    return await enhanceWithLLM(originalData, 'general');
+    
+  } catch (error) {
+    log.error?.('LLM enhancement failed', error) || console.error('❌ LLM enhancement error:', error);
+    return null;
+  }
+}
+
+async function enhanceWithLLM(data, enhancementType) {
+  const log = window.logger || console;
+  log.debug?.(`Requesting LLM enhancement: ${enhancementType}`) || console.log(`🤖 Requesting LLM enhancement: ${enhancementType}`);
+  
+  const payload = {
+    data: data,
+    type: enhancementType,
+    pageContent: document.body.innerText.substring(0, 5000) // Send page context
+  };
+  
+  const result = await SecureFetch.json(`${BACKEND_URL}/api/llm/enhance-data`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload),
+    timeout: 30000 // 30 second timeout for LLM requests
+  });
+  
+  log.success?.('LLM enhancement completed', {
+    type: enhancementType,
+    issuesFixed: result.issues_fixed || 0,
+    enhancementApplied: result.enhancement_applied
+  }) || console.log('🎯 LLM enhancement result:', result);
+  
+  return result;
+}
+
+function identifyDataIssues(data) {
+  const issues = {
+    companyIssues: [],
+    descriptionIssues: [],
+    skillIssues: [],
+    educationIssues: []
+  };
+  
+  // Check for company name issues
+  if (data.work_experience) {
+    data.work_experience.forEach((exp, index) => {
+      if (exp.company && exp.company.length > 100) {
+        issues.companyIssues.push({
+          index,
+          issue: 'Company name too long (likely description)',
+          current: exp.company.substring(0, 50) + '...'
+        });
+      }
+    });
+  }
+  
+  // Check for description issues
+  if (data.work_experience) {
+    data.work_experience.forEach((exp, index) => {
+      if (exp.description && exp.description.length < 50) {
+        issues.descriptionIssues.push({
+          index,
+          issue: 'Description too short',
+          current: exp.description
+        });
+      }
+    });
+  }
+  
+  // Check for problematic skills
+  if (data.skills) {
+    const problematicSkills = ['Tokyo Turntable', 'Tesseract OCR'];
+    problematicSkills.forEach(skill => {
+      if (data.skills.includes(skill)) {
+        issues.skillIssues.push({
+          skill,
+          issue: 'Non-technical skill detected'
+        });
+      }
+    });
+  }
+  
+  // Check for missing education
+  if (!data.education || data.education.length === 0) {
+    issues.educationIssues.push({
+      issue: 'No education data found'
+    });
+  }
+  
+  console.log('🔍 Data issues identified:', issues);
+  return issues;
+}
+
+export async function enhanceLinkedInData(originalData, useEnhancement = true) {
   console.log('🤖 Applying smart enhancements to LinkedIn data...');
   
+  if (!useEnhancement) {
+    console.log('🔄 Enhancement disabled, returning original data');
+    return originalData;
+  }
+  
   const enhanced = JSON.parse(JSON.stringify(originalData)); // Deep copy
+  
+  // Try LLM enhancement first
+  try {
+    const llmResult = await tryLLMEnhancement(originalData);
+    if (llmResult && llmResult.success) {
+      console.log('✅ LLM enhancement successful');
+      return llmResult.data;
+    }
+  } catch (error) {
+    console.log('⚠️ LLM enhancement failed, falling back to rule-based:', error.message);
+  }
   
   // Fix company name extraction issues
   if (enhanced.work_experience) {

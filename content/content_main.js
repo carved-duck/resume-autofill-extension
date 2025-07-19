@@ -1,13 +1,28 @@
 // Enhanced Content Script - Main Orchestrator
 // Clean, modular version that coordinates all functionality
 
+// Import logging system
+if (!window.logger) {
+  // Load config first
+  const configScript = document.createElement('script');
+  configScript.src = chrome.runtime.getURL('js/modules/logConfig.js');
+  document.head.appendChild(configScript);
+  
+  // Then load logger
+  const loggerScript = document.createElement('script');
+  loggerScript.src = chrome.runtime.getURL('js/modules/logger.js');
+  document.head.appendChild(loggerScript);
+}
+
 // Prevent multiple loading
 if (window.resumeAutoFillContentScriptLoaded) {
-  console.log('⚠️ Content script already loaded, skipping...');
+  console.warn('⚠️ Content script already loaded, skipping...');
 } else {
   window.resumeAutoFillContentScriptLoaded = true;
 
-  console.log('🚀 Resume Auto-Fill Extension - Content Script Loaded');
+  // Use logger when available, fallback to console
+  const log = window.logger || console;
+  log.info?.('Content Script Loaded') || console.log('🚀 Resume Auto-Fill Extension - Content Script Loaded');
 
   class ContentScriptOrchestrator {
     constructor() {
@@ -19,7 +34,8 @@ if (window.resumeAutoFillContentScriptLoaded) {
     async initialize() {
       if (this.isInitialized) return;
 
-      console.log('🔧 Initializing content script orchestrator...');
+      const log = window.logger || console;
+      log.debug?.('Initializing orchestrator') || console.log('🔧 Initializing content script orchestrator...');
 
       try {
         // Wait for modules to be loaded
@@ -44,7 +60,8 @@ if (window.resumeAutoFillContentScriptLoaded) {
         }
 
         this.isInitialized = true;
-        console.log('✅ Content script orchestrator initialized successfully');
+        const log = window.logger || console;
+        log.info?.('Orchestrator initialized') || console.log('✅ Content script orchestrator initialized successfully');
 
         // Show initialization notification
         window.NotificationManager?.showNotification(
@@ -108,6 +125,19 @@ if (window.resumeAutoFillContentScriptLoaded) {
 
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           console.log('📨 Main orchestrator received message:', message);
+
+          // Validate sender and message format
+          if (!sender || sender.id !== chrome.runtime.id) {
+            console.warn('Message from unauthorized sender:', sender);
+            sendResponse({ success: false, error: 'Unauthorized sender' });
+            return false;
+          }
+
+          if (!message || typeof message.action !== 'string') {
+            console.warn('Invalid message format:', message);
+            sendResponse({ success: false, error: 'Invalid message format' });
+            return false;
+          }
 
           switch (message.action) {
             case 'fillForm':
@@ -290,14 +320,22 @@ if (window.resumeAutoFillContentScriptLoaded) {
           throw new Error('Content script not fully initialized: ' + (this.initializationError || 'Unknown error'));
         }
 
+        const log = window.logger || console;
         const extractedData = await this.extractLinkedInProfile(useEnhancement);
-        console.log('🔍 Raw extracted data:', JSON.stringify(extractedData, null, 2));
+        log.debug?.('Raw data extracted', extractedData) || console.log('🔍 Raw extracted data:', JSON.stringify(extractedData, null, 2));
 
         const normalizedData = this.normalizeProfileData(extractedData);
-        console.log('🔄 Normalized data:', JSON.stringify(normalizedData, null, 2));
+        log.debug?.('Data normalized', normalizedData) || console.log('🔄 Normalized data:', JSON.stringify(normalizedData, null, 2));
 
-        // Enhanced logging for debugging
-        console.log('📊 Data structure analysis:', {
+        // Concise data structure summary
+        const summary = {
+          personal: !!normalizedData.personal_info,
+          experience: normalizedData.work_experience?.length || 0,
+          education: normalizedData.education?.length || 0,
+          skills: normalizedData.skills?.length || 0,
+          summary: normalizedData.summary?.length || 0
+        };
+        log.info?.('Profile extracted', summary) || console.log('📊 Data structure analysis:', {
           hasPersonalInfo: !!normalizedData.personal_info,
           hasPersonal: !!normalizedData.personal,
           personalInfoKeys: Object.keys(normalizedData.personal_info || {}),
@@ -316,7 +354,7 @@ if (window.resumeAutoFillContentScriptLoaded) {
         try {
           if (window.storageManager?.saveResumeData) {
             await window.storageManager.saveResumeData(normalizedData, 'linkedin');
-            console.log('💾 Data saved via storageManager');
+            log.success?.('Data saved via storageManager') || console.log('💾 Data saved via storageManager');
           } else {
             // Direct Chrome storage fallback
             const dataToSave = {
@@ -328,7 +366,7 @@ if (window.resumeAutoFillContentScriptLoaded) {
               resumeData: dataToSave,
               latestResumeData: dataToSave
             });
-            console.log('💾 Data saved via direct Chrome storage');
+            log.success?.('Data saved via direct storage') || console.log('💾 Data saved via direct Chrome storage');
           }
         } catch (storageError) {
           console.error('❌ Storage save failed:', storageError);
@@ -392,7 +430,7 @@ if (window.resumeAutoFillContentScriptLoaded) {
         
         let enhancedData = traditionalData;
         if (shouldApplyEnhancements(traditionalData)) {
-          enhancedData = enhanceLinkedInData(traditionalData);
+          enhancedData = await enhanceLinkedInData(traditionalData);
         }
         
         const comparison = { 
@@ -437,7 +475,7 @@ if (window.resumeAutoFillContentScriptLoaded) {
             const { enhanceLinkedInData, shouldApplyEnhancements } = await import(chrome.runtime.getURL('js/modules/smartEnhancer.js'));
             
             if (shouldApplyEnhancements(profileData)) {
-              const enhancedData = enhanceLinkedInData(profileData);
+              const enhancedData = await enhanceLinkedInData(profileData);
               console.log('✅ Smart enhancements applied:', enhancedData);
               return enhancedData;
             } else {

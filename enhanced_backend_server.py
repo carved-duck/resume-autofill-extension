@@ -9,8 +9,15 @@ import re
 import json
 import tempfile
 import logging
+import requests
+import hashlib
+import html
+import mimetypes
+import time
 from datetime import datetime
 from pathlib import Path
+from functools import wraps
+from collections import defaultdict
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -41,8 +48,112 @@ ALLOWED_EXTENSIONS = {'pdf'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 PORT = 3000  # Consolidated port for Chrome extension compatibility
 
+# LLM Configuration
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL = "llama3.2:3b"  # Default model, can be configured
+LLM_TIMEOUT = 30  # seconds
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+
+# Rate limiting storage
+rate_limits = defaultdict(list)
+
+def rate_limit(max_requests=10, window_seconds=60):
+    """Rate limiting decorator"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+            now = time.time()
+            
+            # Clean old requests
+            rate_limits[client_ip] = [
+                req_time for req_time in rate_limits[client_ip] 
+                if now - req_time < window_seconds
+            ]
+            
+            # Check rate limit
+            if len(rate_limits[client_ip]) >= max_requests:
+                return jsonify({
+                    'success': False,
+                    'error': 'Rate limit exceeded'
+                }), 429
+            
+            rate_limits[client_ip].append(now)
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+def sanitize_llm_input(text, max_length=2000):
+    """Sanitize text for safe LLM prompt inclusion"""
+    if not isinstance(text, str):
+        return ""
+    
+    # Remove potentially dangerous patterns
+    text = re.sub(r'[^\w\s\.\,\-\@\(\)\[\]]+', '', text)
+    
+    # HTML escape
+    text = html.escape(text)
+    
+    # Limit length
+    text = text[:max_length]
+    
+    # Remove common prompt injection patterns
+    dangerous_patterns = [
+        r'ignore\s+previous\s+instructions',
+        r'system\s*:',
+        r'assistant\s*:',
+        r'<\|.*?\|>',
+        r'\[INST\].*?\[/INST\]'
+    ]
+    
+    for pattern in dangerous_patterns:
+        text = re.sub(pattern, '[FILTERED]', text, flags=re.IGNORECASE)
+    
+    return text
+
+def validate_and_save_file(file):
+    """Securely validate and save uploaded file"""
+    if not file or not file.filename:
+        raise ValueError("Invalid file object")
+    
+    # Check file size before reading content
+    file.seek(0, 2)  # Seek to end
+    file_size = file.tell()
+    file.seek(0)     # Reset to beginning
+    
+    if file_size > MAX_FILE_SIZE:
+        raise ValueError(f"File too large: {file_size} bytes (max: {MAX_FILE_SIZE})")
+    
+    if file_size == 0:
+        raise ValueError("Empty file uploaded")
+    
+    # Validate MIME type
+    mime_type = mimetypes.guess_type(file.filename)[0]
+    if mime_type != 'application/pdf':
+        raise ValueError(f"Invalid MIME type: {mime_type}")
+    
+    # Generate secure filename with hash
+    timestamp = str(int(time.time()))
+    file_content = file.read(512)  # Read first 512 bytes for hash
+    file.seek(0)  # Reset
+    file_hash = hashlib.sha256(file_content).hexdigest()[:8]
+    secure_name = f"pdf_{timestamp}_{file_hash}.pdf"
+    
+    # Use absolute path with restricted directory
+    upload_dir = Path(UPLOAD_FOLDER).resolve()
+    file_path = upload_dir / secure_name
+    
+    # Ensure path is within allowed directory
+    if not str(file_path).startswith(str(upload_dir)):
+        raise ValueError("Path traversal attempt detected")
+    
+    # Save with restricted permissions
+    file.save(str(file_path))
+    os.chmod(file_path, 0o600)  # Read/write for owner only
+    
+    return str(file_path), secure_name
 
 def allowed_file(filename):
     """Check if file extension is allowed"""
@@ -445,6 +556,7 @@ def check_system_dependencies():
         logger.info("✅ All system dependencies found")
 
 @app.route('/resume/parse_api', methods=['POST'])
+@rate_limit(max_requests=5, window_seconds=60)
 def parse_resume():
     """Parse uploaded resume PDF with OCR fallback"""
 
@@ -477,18 +589,10 @@ def parse_resume():
     try:
         logger.info("🔍 [API] Starting PDF processing...")
 
-        # Save uploaded file temporarily
-        if not file.filename:
-            return jsonify({
-                'success': False,
-                'error': 'No filename provided'
-            }), 400
-
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{filename}")
+        # Use secure file validation and saving
+        file_path, secure_name = validate_and_save_file(file)
         logger.info(f"🔍 [API] Saving file to: {file_path}")
 
-        file.save(file_path)
         logger.info("✅ [API] File saved successfully")
 
         # Check file size
@@ -1004,6 +1108,378 @@ def apply_linkedin_enhancements(data, issues, page_content):
     
     return enhanced
 
+# ============================================================================
+# LLM INTEGRATION ENDPOINTS
+# ============================================================================
+
+class OllamaClient:
+    """Client for communicating with Ollama LLM server"""
+    
+    def __init__(self, base_url=OLLAMA_BASE_URL, model=OLLAMA_MODEL):
+        self.base_url = base_url
+        self.model = model
+        self.timeout = LLM_TIMEOUT
+    
+    def is_available(self):
+        """Check if Ollama server is available"""
+        try:
+            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            return response.status_code == 200
+        except Exception:
+            return False
+    
+    def generate(self, prompt, system_prompt=None, max_tokens=500):
+        """Generate text using Ollama"""
+        try:
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "num_predict": max_tokens,
+                    "temperature": 0.1  # Low temperature for consistent results
+                }
+            }
+            
+            if system_prompt:
+                payload["system"] = system_prompt
+            
+            logger.info(f"🤖 Sending LLM request to {self.base_url}/api/generate")
+            logger.info(f"🔍 Model: {self.model}, Prompt length: {len(prompt)} chars")
+            
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=self.timeout
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                generated_text = result.get('response', '').strip()
+                logger.info(f"✅ LLM response received: {len(generated_text)} chars")
+                return {
+                    'success': True,
+                    'text': generated_text,
+                    'model': self.model,
+                    'tokens_used': result.get('eval_count', 0)
+                }
+            else:
+                logger.error(f"❌ LLM request failed: {response.status_code}")
+                return {
+                    'success': False,
+                    'error': f'HTTP {response.status_code}: {response.text}'
+                }
+                
+        except requests.exceptions.Timeout:
+            logger.error("❌ LLM request timed out")
+            return {
+                'success': False,
+                'error': 'Request timed out'
+            }
+        except Exception as e:
+            logger.error(f"❌ LLM request failed: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+# Initialize Ollama client
+ollama = OllamaClient()
+
+@app.route('/api/llm/enhance-data', methods=['POST'])
+@rate_limit(max_requests=15, window_seconds=60)
+def llm_enhance_data():
+    """Enhance extracted data using LLM"""
+    
+    logger.info("🤖 [API] Received LLM data enhancement request")
+    
+    try:
+        # Check if Ollama is available
+        if not ollama.is_available():
+            logger.warning("⚠️ Ollama server not available, falling back to rule-based enhancement")
+            return enhance_linkedin_data()  # Fallback to existing endpoint
+        
+        request_data = request.get_json()
+        if not request_data:
+            return jsonify({
+                'success': False,
+                'error': 'No JSON data provided'
+            }), 400
+        
+        original_data = request_data.get('data', {})
+        task_type = request_data.get('type', 'general')
+        
+        logger.info(f"📊 Enhancing data with LLM, task type: {task_type}")
+        
+        # Create enhancement prompt based on task type
+        if task_type == 'company_extraction':
+            enhanced_data = llm_fix_company_names(original_data, request_data.get('pageContent', ''))
+        elif task_type == 'job_descriptions':
+            enhanced_data = llm_enhance_descriptions(original_data)
+        elif task_type == 'field_mapping':
+            enhanced_data = llm_map_fields(original_data, request_data.get('formFields', []))
+        else:
+            enhanced_data = llm_general_enhancement(original_data)
+        
+        return jsonify(enhanced_data)
+        
+    except Exception as e:
+        logger.error(f"❌ LLM enhancement error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Enhancement failed: {str(e)}'
+        }), 500
+
+def llm_fix_company_names(data, page_content):
+    """Use LLM to extract correct company names"""
+    
+    system_prompt = """You are a data extraction expert. Your job is to identify correct company names from LinkedIn profile content. 
+
+Rules:
+1. Extract the actual company name, not job descriptions
+2. Look for patterns like "Company Name · Employment Type"
+3. Ignore job titles and descriptions
+4. Return only the company name, nothing else
+5. If multiple companies are mentioned, return them as a JSON array
+
+Be precise and only extract real company names."""
+
+    # Sanitize input for safe LLM processing
+    safe_content = sanitize_llm_input(page_content, 1500)
+    
+    prompt = f"""
+LinkedIn Profile Content:
+{safe_content}
+
+Current extracted work experience:
+{json.dumps(data.get('work_experience', [])[:5], indent=2)}
+
+Extract the correct company names for each job position. For each position, identify the actual company name from the LinkedIn content above.
+
+Return only a JSON object in this format:
+{{
+  "companies": ["Company Name 1", "Company Name 2", ...],
+  "confidence": "high/medium/low"
+}}
+"""
+    
+    result = ollama.generate(prompt, system_prompt, max_tokens=200)
+    
+    if result['success']:
+        try:
+            # Parse LLM response
+            llm_response = result['text'].strip()
+            if llm_response.startswith('{') and llm_response.endswith('}'):
+                llm_data = json.loads(llm_response)
+                companies = llm_data.get('companies', [])
+                
+                # Apply extracted companies to work experience
+                enhanced_data = data.copy()
+                if enhanced_data.get('work_experience') and companies:
+                    for i, exp in enumerate(enhanced_data['work_experience']):
+                        if i < len(companies):
+                            exp['company'] = companies[i]
+                            logger.info(f"🔧 LLM fixed company {i}: {companies[i]}")
+                
+                enhanced_data['llm_enhancement'] = {
+                    'applied': True,
+                    'type': 'company_extraction',
+                    'confidence': llm_data.get('confidence', 'medium'),
+                    'model': ollama.model
+                }
+                
+                return {
+                    'success': True,
+                    'data': enhanced_data,
+                    'message': 'Company names enhanced with LLM'
+                }
+            
+        except json.JSONDecodeError:
+            logger.warning("⚠️ LLM returned invalid JSON, falling back to rule-based")
+    
+    # Fallback to rule-based enhancement
+    logger.info("🔄 Falling back to rule-based company extraction")
+    return apply_linkedin_enhancements(data, [], page_content)
+
+def llm_enhance_descriptions(data):
+    """Use LLM to improve job descriptions"""
+    
+    system_prompt = """You are a professional resume writer. Your job is to enhance job descriptions to be more impactful and professional while staying truthful to the original content.
+
+Rules:
+1. Keep all factual information accurate
+2. Improve clarity and professional language
+3. Use action verbs and quantify achievements where possible
+4. Make descriptions more engaging but not exaggerated
+5. Maintain the original meaning and scope"""
+
+    experiences = data.get('work_experience', [])
+    enhanced_experiences = []
+    
+    for exp in experiences:
+        if exp.get('description') and len(exp['description']) > 20:
+            prompt = f"""
+Job Title: {exp.get('title', 'Unknown')}
+Company: {exp.get('company', 'Unknown')}
+Current Description: {exp['description']}
+
+Enhance this job description to be more professional and impactful while keeping all facts accurate. Return only the enhanced description, nothing else.
+"""
+            
+            result = ollama.generate(prompt, system_prompt, max_tokens=300)
+            
+            if result['success']:
+                enhanced_exp = exp.copy()
+                enhanced_exp['description'] = result['text'].strip()
+                enhanced_exp['description_enhanced'] = True
+                enhanced_experiences.append(enhanced_exp)
+                logger.info(f"🔧 LLM enhanced description for: {exp.get('title', 'Unknown')}")
+            else:
+                enhanced_experiences.append(exp)
+        else:
+            enhanced_experiences.append(exp)
+    
+    enhanced_data = data.copy()
+    enhanced_data['work_experience'] = enhanced_experiences
+    enhanced_data['llm_enhancement'] = {
+        'applied': True,
+        'type': 'description_enhancement',
+        'model': ollama.model
+    }
+    
+    return {
+        'success': True,
+        'data': enhanced_data,
+        'message': 'Job descriptions enhanced with LLM'
+    }
+
+def llm_map_fields(resume_data, form_fields):
+    """Use LLM to intelligently map resume fields to form fields"""
+    
+    system_prompt = """You are an expert at mapping resume data to job application form fields. Analyze the resume data and form field descriptions to create accurate mappings.
+
+Rules:
+1. Match resume fields to the most appropriate form fields
+2. Consider field names, labels, and contexts
+3. Return mappings as JSON only
+4. If unsure, indicate lower confidence"""
+
+    prompt = f"""
+Resume Data:
+{json.dumps(resume_data, indent=2)[:1500]}
+
+Form Fields Found:
+{json.dumps(form_fields, indent=2)[:1000]}
+
+Create a mapping between resume data and form fields. Return only a JSON object in this format:
+{{
+  "mappings": [
+    {{
+      "form_field": "field_name",
+      "resume_value": "value",
+      "confidence": "high/medium/low"
+    }}
+  ]
+}}
+"""
+    
+    result = ollama.generate(prompt, system_prompt, max_tokens=400)
+    
+    if result['success']:
+        try:
+            llm_response = result['text'].strip()
+            if llm_response.startswith('{') and llm_response.endswith('}'):
+                mapping_data = json.loads(llm_response)
+                return {
+                    'success': True,
+                    'mappings': mapping_data.get('mappings', []),
+                    'message': 'Field mappings created with LLM'
+                }
+        except json.JSONDecodeError:
+            logger.warning("⚠️ LLM returned invalid JSON for field mapping")
+    
+    return {
+        'success': False,
+        'error': 'Could not create field mappings',
+        'message': 'LLM field mapping failed'
+    }
+
+def llm_general_enhancement(data):
+    """General data cleaning and enhancement with LLM"""
+    
+    system_prompt = """You are a data quality expert. Clean and enhance the provided resume data by:
+
+1. Fixing formatting issues
+2. Standardizing date formats
+3. Cleaning up inconsistent data
+4. Improving data structure
+5. Removing duplicates
+
+Return the enhanced data in the same JSON structure."""
+
+    prompt = f"""
+Resume Data to Enhance:
+{json.dumps(data, indent=2)}
+
+Clean and enhance this data. Return only the improved JSON structure, nothing else.
+"""
+    
+    result = ollama.generate(prompt, system_prompt, max_tokens=1000)
+    
+    if result['success']:
+        try:
+            llm_response = result['text'].strip()
+            if llm_response.startswith('{') and llm_response.endswith('}'):
+                enhanced_data = json.loads(llm_response)
+                enhanced_data['llm_enhancement'] = {
+                    'applied': True,
+                    'type': 'general_enhancement',
+                    'model': ollama.model
+                }
+                return {
+                    'success': True,
+                    'data': enhanced_data,
+                    'message': 'Data enhanced with LLM'
+                }
+        except json.JSONDecodeError:
+            logger.warning("⚠️ LLM returned invalid JSON for general enhancement")
+    
+    # Return original data if LLM fails
+    return {
+        'success': True,
+        'data': data,
+        'message': 'No LLM enhancement applied'
+    }
+
+@app.route('/api/llm/status', methods=['GET'])
+def llm_status():
+    """Check LLM availability and status"""
+    
+    if ollama.is_available():
+        try:
+            # Test generation
+            test_result = ollama.generate("Hello", max_tokens=10)
+            return jsonify({
+                'available': True,
+                'model': ollama.model,
+                'base_url': ollama.base_url,
+                'test_successful': test_result['success'],
+                'message': 'LLM is ready for use'
+            })
+        except Exception as e:
+            return jsonify({
+                'available': False,
+                'error': f'LLM test failed: {str(e)}',
+                'message': 'LLM server reachable but not working properly'
+            })
+    else:
+        return jsonify({
+            'available': False,
+            'model': ollama.model,
+            'base_url': ollama.base_url,
+            'message': 'LLM server not available. Make sure Ollama is running.'
+        })
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint with system info"""
@@ -1019,26 +1495,51 @@ def health_check():
     except Exception:
         deps_ok = False
 
+    # Check LLM availability
+    llm_available = ollama.is_available()
+
     return jsonify({
         'status': 'healthy',
-        'message': 'Enhanced Resume Auto-Fill API is running',
+        'message': 'Enhanced Resume Auto-Fill API with LLM is running',
         'features': {
             'pdf_text_extraction': True,
             'ocr_fallback': deps_ok,
             'tesseract_available': deps_ok,
-            'poppler_available': deps_ok
+            'poppler_available': deps_ok,
+            'llm_integration': llm_available,
+            'llm_model': ollama.model if llm_available else None
+        },
+        'endpoints': {
+            'resume_parsing': '/resume/parse_api',
+            'linkedin_parsing': '/linkedin/parse_api',
+            'llm_enhancement': '/api/llm/enhance-data',
+            'llm_status': '/api/llm/status'
         },
         'port': PORT
     })
 
 if __name__ == '__main__':
-    print("🚀 Starting Enhanced Resume Auto-Fill API Server...")
+    print("🚀 Starting Enhanced Resume Auto-Fill API Server with LLM Integration...")
     print("📡 Server will be available at: http://localhost:3000")
-    print("🔗 Chrome extension should point to: http://localhost:3000/resume/parse_api")
-    print("⚡ Features: PDF text extraction + OCR fallback + Advanced parsing")
+    print("🔗 Chrome extension endpoints:")
+    print("   📄 Resume parsing: http://localhost:3000/resume/parse_api")
+    print("   💼 LinkedIn parsing: http://localhost:3000/linkedin/parse_api") 
+    print("   🤖 LLM enhancement: http://localhost:3000/api/llm/enhance-data")
+    print("   ⚡ LLM status: http://localhost:3000/api/llm/status")
+    print("🎯 Features: PDF + OCR + Advanced parsing + LLM enhancement")
 
     # Check dependencies
     check_system_dependencies()
+    
+    # Check LLM availability
+    if ollama.is_available():
+        print("✅ Ollama LLM server is available and ready!")
+        print(f"🤖 Using model: {ollama.model}")
+    else:
+        print("⚠️ Ollama LLM server not available")
+        print("   Install: https://ollama.com/download") 
+        print(f"   Then run: ollama pull {ollama.model}")
+        print("🔄 Server will work with rule-based fallbacks")
 
     app.run(
         host='0.0.0.0',
