@@ -204,3 +204,26 @@ The extension is now production-ready with:
 - ✅ **Extensible Architecture**: Ready for additional features and enhancements
 
 **Next Steps**: Deploy backend server and distribute extension for user testing.
+
+## 📝 **RECENT CHANGES (For Git Commits)**
+
+### **Latest Session - Nested Position Extraction Fix**
+```
+Fix nested position extraction for multiple jobs under same company
+
+- Add job description detection to prevent descriptions being used as company names
+- Improve nested position detection logic in linkedinExtractor.js
+- Enhance company validation to reject obvious job descriptions
+- Add LLM-based detection for description-as-company issues
+- Fix fallback logic that incorrectly used long text as company names
+
+Resolves issue where "Created and prepared payroll reports..." was used as company name instead of actual company for multiple hotel positions.
+```
+
+## 📝 **FUTURE IMPROVEMENTS (Low Priority)**
+
+### **Console Output Optimization** 
+- **Issue**: Console output still generates ~500+ lines during LinkedIn extraction
+- **Status**: Partial fix implemented with logging system (reduced from 2000+ lines)
+- **Remaining Work**: Further reduce verbose JSON dumps in smartEnhancer.js and content_main.js
+- **Priority**: Low - functionality works correctly, just verbose logging

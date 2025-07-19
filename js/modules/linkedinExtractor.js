@@ -1153,6 +1153,28 @@ export class LinkedInExtractor {
            lowerText.includes('endorsed');
   }
 
+  looksLikeJobDescription(text) {
+    if (!text || text.length < 20) return false;
+    
+    const lowerText = text.toLowerCase();
+    
+    // Check for common job description starting patterns
+    const descriptionPatterns = [
+      /^(created|managed|developed|implemented|led|responsible|achieved|conducted|provided|gained|filled|served|coordinated|responded|instructed|taught|trained|played)/i,
+      /\b(reports?|duties|responsibilities|tasks?|projects?|students?|guests?|customers?|clients?)\b/i,
+      /\b(Excel|Word|spreadsheets?|departments?|payroll|accounting|reservations?|hotel|marketing|enrollment)\b/i,
+      /\b(successfully|effectively|efficiently|approximately|various|diverse|key role|launch)\b/i
+    ];
+    
+    // If text is very long (like a paragraph) it's likely a description
+    if (text.length > 100) {
+      return descriptionPatterns.some(pattern => pattern.test(text));
+    }
+    
+    // For shorter text, require stronger indicators
+    return /^(created|managed|developed|implemented|led|responsible|achieved|conducted|provided|gained|filled|served|coordinated|responded|instructed|taught|trained|played)/i.test(text);
+  }
+
   tryAlternativeTextPatterns(lines, result) {
     // Try to find patterns like "Title at Company" or "Title | Company"
     for (const line of lines) {
@@ -1405,30 +1427,59 @@ export class LinkedInExtractor {
       }
       
       if (nestedElements.length < 2) {
-        console.log('🔍 No nested positions detected, checking for company header...');
+        console.log('🔍 No nested positions detected, checking for company header pattern...');
         
-        // Alternative approach: Look for company name at top level and positions below
-        const companyElement = element.querySelector('h3, h4, .pvs-entity__path-node, .artdeco-entity-lockup__title');
-        const positionElements = element.querySelectorAll('.pvs-entity__path-node:not(:first-child), h4:not(:first-child)');
+        // Look for the pattern where company name appears first, then multiple positions
+        const elementText = element.textContent || '';
+        const lines = elementText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
         
-        if (companyElement && positionElements.length > 0) {
-          // Found company header with multiple positions below
-          const companyName = this.deduplicateText(companyElement.textContent?.trim() || '');
-          if (this.isValidCompanyName(companyName)) {
-            console.log(`✅ Found company header "${companyName}" with ${positionElements.length} positions`);
-            
+        // Try to find a company name in the first few lines
+        let companyName = null;
+        let companyLineIndex = -1;
+        
+        for (let i = 0; i < Math.min(3, lines.length); i++) {
+          const line = lines[i];
+          if (this.isValidCompanyName(line) && !this.isValidJobTitle(line)) {
+            companyName = line;
+            companyLineIndex = i;
+            console.log(`✅ Found potential company header: "${companyName}" at line ${i}`);
+            break;
+          }
+        }
+        
+        // If we found a company, look for multiple job titles below it
+        if (companyName && companyLineIndex >= 0) {
+          const potentialTitles = [];
+          const potentialDateRanges = [];
+          
+          // Look for job titles and date ranges after the company name
+          for (let i = companyLineIndex + 1; i < lines.length; i++) {
+            const line = lines[i];
+            if (this.isValidJobTitle(line) && !this.looksLikeJobDescription(line)) {
+              potentialTitles.push(line);
+              console.log(`🎯 Found potential job title under ${companyName}: "${line}"`);
+            } else if (this.looksLikeDateRange(line)) {
+              potentialDateRanges.push(line);
+            }
+          }
+          
+          // If we found multiple titles, try to create positions
+          if (potentialTitles.length > 1) {
+            console.log(`✅ Found ${potentialTitles.length} positions under "${companyName}"`);
             const positions = [];
-            for (const posEl of positionElements) {
-              const position = await this.extractExperienceFromElement(posEl);
-              if (position) {
-                position.company = companyName; // Override with main company name
-                positions.push(position);
-              }
+            
+            for (let i = 0; i < potentialTitles.length; i++) {
+              const position = {
+                title: potentialTitles[i],
+                company: companyName,
+                date_range: potentialDateRanges[i] || '',
+                location: '',
+                description: `${potentialTitles[i]} at ${companyName}`
+              };
+              positions.push(position);
             }
             
-            if (positions.length > 1) {
-              return positions;
-            }
+            return positions;
           }
         }
         
@@ -1739,7 +1790,8 @@ export class LinkedInExtractor {
               company = cleanedCompany;
               console.log(`✅ Found backup company for title "${title}": "${company}"`);
               break;
-            } else if (line.length < 200) { // Avoid using long descriptions as company names
+            } else if (line.length < 100 && !this.looksLikeJobDescription(line)) { 
+              // Only use as company if it's short and doesn't look like a job description
               company = line;
               console.log(`✅ Found backup company for title "${title}": "${company}"`);
               break;

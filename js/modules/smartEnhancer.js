@@ -93,15 +93,49 @@ function identifyDataIssues(data) {
     educationIssues: []
   };
   
-  // Check for company name issues
+  // Check for company name issues and nested position problems
   if (data.work_experience) {
+    const companyNames = new Map();
+    
     data.work_experience.forEach((exp, index) => {
+      // Check for description being used as company name
       if (exp.company && exp.company.length > 100) {
         issues.companyIssues.push({
           index,
           issue: 'Company name too long (likely description)',
           current: exp.company.substring(0, 50) + '...'
         });
+      }
+      
+      // Check for job descriptions being used as company names
+      if (exp.company && /^(created|managed|developed|implemented|led|responsible|achieved|conducted|provided|gained|filled|served|coordinated|responded)/i.test(exp.company)) {
+        issues.companyIssues.push({
+          index,
+          issue: 'Job description used as company name',
+          current: exp.company.substring(0, 50) + '...'
+        });
+      }
+      
+      // Track company occurrences for nested position detection
+      if (exp.company && exp.company.length < 100) {
+        if (!companyNames.has(exp.company)) {
+          companyNames.set(exp.company, []);
+        }
+        companyNames.get(exp.company).push({ index, title: exp.title, dateRange: exp.date_range });
+      }
+    });
+    
+    // Check for potential nested positions (same company, different titles/dates)
+    companyNames.forEach((positions, company) => {
+      if (positions.length > 1) {
+        // Check if these might be separate positions that should be grouped
+        const hasDistinctDates = positions.some((pos, i) => 
+          positions.some((other, j) => i !== j && pos.dateRange !== other.dateRange)
+        );
+        
+        if (hasDistinctDates) {
+          console.log(`🔍 Potential nested positions detected for ${company}:`, positions);
+        }
       }
     });
   }
